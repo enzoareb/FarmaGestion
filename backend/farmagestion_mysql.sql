@@ -85,7 +85,12 @@ CREATE TABLE os_programas (
 CREATE TABLE productos (
   id              INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   codigo_barras   VARCHAR(30)   NOT NULL UNIQUE,
+  codigo_barras2  VARCHAR(30)   DEFAULT NULL,
+  codigo_barras3  VARCHAR(30)   DEFAULT NULL,
   codigo_alfabeta VARCHAR(30),
+  codigo_sud      VARCHAR(30)   DEFAULT NULL,
+  codigo_suizo    VARCHAR(30)   DEFAULT NULL,
+  codigo_asopro   VARCHAR(30)   DEFAULT NULL,
   troquel         VARCHAR(30),
   nombre          VARCHAR(200)  NOT NULL,
   droga           VARCHAR(200),

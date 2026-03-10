@@ -3338,16 +3338,17 @@ const OS_INIT = [
     ]},
 ];
 
+// Orden: operación diaria → datos maestros → compras → análisis
 const NAV=[
-  {id:"dashboard",  label:"Dashboard",         icon:"home"},
-  {id:"factura",    label:"Facturación",        icon:"bill"},
-  {id:"stock",      label:"Stock",             icon:"box"},
-  {id:"precios",    label:"Precios",           icon:"pct"},
-  {id:"os",         label:"Obras Sociales",    icon:"shield"},
-  {id:"clientes",   label:"Clientes",          icon:"users"},
-  {id:"proveedores",label:"Proveedores",       icon:"truck"},
-  {id:"caja",       label:"Caja",              icon:"cash"},
-  {id:"reportes",   label:"Reportes",          icon:"coin"},
+  {id:"dashboard",  label:"Dashboard",         icon:"home"},      // 1. Vista general
+  {id:"factura",    label:"Facturación",        icon:"bill"},     // 2. Operación principal
+  {id:"caja",       label:"Caja",               icon:"cash"},     // 3. Cobros del día
+  {id:"stock",      label:"Stock",              icon:"box"},      // 4. Productos
+  {id:"precios",    label:"Precios",            icon:"pct"},     // 5. Actualización precios
+  {id:"os",         label:"Obras Sociales",     icon:"shield"},   // 6. Config OS
+  {id:"clientes",   label:"Clientes",           icon:"users"},   // 7. Config clientes
+  {id:"proveedores",label:"Proveedores",        icon:"truck"},    // 8. Compras
+  {id:"reportes",   label:"Reportes",           icon:"coin"},    // 9. Análisis
 ];
 
 export default function App() {

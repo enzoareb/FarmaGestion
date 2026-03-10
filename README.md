@@ -43,14 +43,80 @@ farmagestion-src/
 
 ---
 
+## 🧷 Escenarios de instalación
+
+### A. Instalación desde cero (nuevo entorno)
+
+1. **Clonar el proyecto**
+   ```bash
+   git clone https://github.com/enzoareb/FarmaGestion.git
+   cd FarmaGestion   # o la carpeta donde quede el repo
+   ```
+2. **Crear base de datos y esquema**
+   - Opción rápida por consola:
+     ```bash
+     mysql -u root -p -e "CREATE DATABASE farmagestion CHARACTER SET utf8mb4;"
+     mysql -u root -p farmagestion < backend/farmagestion_mysql.sql
+     mysql -u root -p farmagestion < backend/migraciones.sql  # si existe
+     ```
+   - O phpMyAdmin: ver detalles en la sección **1. Base de datos** más abajo.
+3. **Configurar y levantar backend**
+   ```bash
+   cd backend
+   npm install
+   cp .env.example .env        # editar con tus credenciales MySQL
+   npm run dev                 # → http://localhost:3001
+   ```
+4. **Levantar frontend**
+   ```bash
+   cd ../frontend
+   npm install
+   npm run dev                 # → http://localhost:5173
+   ```
+5. **Login inicial**
+   - Usuario: `admin`
+   - Password: `admin123`  (cambiar en producción)
+
+### B. Actualizar un entorno existente (ya tenés la base creada)
+
+Si ya tenés la base `farmagestion` funcionando y en el repo aparecen cambios de esquema:
+
+1. **Actualizar código**
+   ```bash
+   git pull
+   ```
+2. **Aplicar migraciones de BD (nuevos campos/tablas)**
+   ```bash
+   mysql -u root -p farmagestion < backend/migraciones.sql
+   ```
+   - Ejecuta solo las migraciones que todavía no aplicaste.
+   - Si preferís phpMyAdmin: pegar los `ALTER TABLE ...` allí y ejecutarlos.
+3. **Reiniciar backend** (si estaba corriendo) para que recoja posibles cambios en controladores.
+
+Con esto, tu entorno existente queda alineado con los cambios del proyecto (código + base).
+
+---
+
 ### 1. Base de datos
 
+**Opción A — Línea de comandos (CMD / PowerShell):**
 ```bash
 mysql -u root -p -e "CREATE DATABASE farmagestion CHARACTER SET utf8mb4;"
 mysql -u root -p farmagestion < backend/farmagestion_mysql.sql
 ```
 
+**Opción B — phpMyAdmin (interfaz web):**
+1. Abrir phpMyAdmin (ej: `http://localhost/phpmyadmin`)
+2. Crear base de datos: nombre `farmagestion`, cotejamiento `utf8mb4_unicode_ci`
+3. Seleccionar la base → pestaña **Importar**
+4. Elegir archivo `backend/farmagestion_mysql.sql` → **Continuar**
+
 **Usuario inicial:** `admin` / `admin123` ← cambiar en producción.
+
+| Método | Ventaja |
+|--------|---------|
+| **CMD/PowerShell** | Rápido, sin interfaz, útil para scripts y automatización |
+| **phpMyAdmin** | Interfaz gráfica, ver tablas y datos al instante, más amigable |
 
 ---
 
@@ -77,16 +143,19 @@ npm run dev                 # → http://localhost:5173
 
 ## 🧩 Módulos
 
+Orden sugerido: operación diaria → datos maestros → compras → análisis.
+
 | Módulo | Descripción |
 |--------|-------------|
 | 📊 Dashboard | KPIs, ventas del día, alertas de stock |
 | 🧾 Facturación | Venta con OS/programas, validación de recetas |
+| 💰 Caja | Apertura/cierre con movimientos del día |
 | 📦 Stock | ABM productos (barras, alfabeta, troquel) |
 | 💲 Precios | Actualización masiva e individual con historial |
 | 🏥 Obras Sociales | ABM con programas, descuentos y topes |
 | 👤 Clientes | ABM con legajos y medicamentos autorizados |
 | 🚚 Proveedores | Gestión de pedidos a droguerías |
-| 💰 Caja | Apertura/cierre con movimientos del día |
+| 📈 Reportes | Ventas por período, rentabilidad, distribución |
 
 ---
 
