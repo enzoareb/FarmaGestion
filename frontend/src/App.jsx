@@ -99,6 +99,7 @@ const Icon = ({name,size=18}) => {
     edit:    <><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></>,
     shield:  <><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></>,
     pct:     <><line x1="19" y1="5" x2="5" y2="19"/><circle cx="6.5" cy="6.5" r="2.5"/><circle cx="17.5" cy="17.5" r="2.5"/></>,
+    book:    <><path d="M4 19.5A2.5 2.5 0 016.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/><line x1="8" y1="6" x2="16" y2="6"/><line x1="8" y1="10" x2="16" y2="10"/></>,
   };
   return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">{P[name]}</svg>;
 };
@@ -740,15 +741,18 @@ function Facturacion({ obrasSociales, clientes }) {
   const descOS    = osSel&&programaSel ? Math.round(subtotal*pctDesc/100) : 0;
   const coseguro  = osSel&&programaSel ? (parseFloat(coseguroEdit)||0) : 0;
   const total     = subtotal - descOS;
+  // Si pasó por validación de receta, el monto a cobrar viene de la validación; el coseguro se suma sobre ese monto
+  const montoValidacion = recetaValidada != null ? recetaValidada.total : total;
+  const totalACobrar   = montoValidacion + coseguro;
 
   const medio      = MEDIOS_PAGO.find(m=>m.id===medioActivo);
   const recargoPct = medio&&cuotas>1?(RECARGOS[medio.id]?.[cuotas]||0):0;
   const montoNum   = parseFloat(monto)||0;
   const montoFinal = Math.round(montoNum*(1+recargoPct/100));
   const totalPagado= pagos.reduce((a,p)=>a+p.montoBase,0);
-  const pendiente  = Math.max(0,total-totalPagado);
-  const completo   = totalPagado>=total&&pagos.length>0;
-  const vuelto     = Math.max(0,totalPagado-total);
+  const pendiente  = Math.max(0,totalACobrar-totalPagado);
+  const completo   = totalPagado>=totalACobrar&&pagos.length>0;
+  const vuelto     = Math.max(0,totalPagado-totalACobrar);
 
   const agregarPago = () => {
     if(!medioActivo||montoNum<=0) return;
@@ -850,12 +854,22 @@ function Facturacion({ obrasSociales, clientes }) {
               </div>}
             </>}
           </div>
+          {recetaValidada&&(
+            <div style={{marginBottom:8}}>
+              <div style={{display:"flex",justifyContent:"space-between",padding:"7px 0",borderBottom:"1px solid #f1f5f9",fontSize:12}}>
+                <span style={{color:"#7c3aed"}}>Monto validación (receta)</span><span style={{fontWeight:600,color:"#7c3aed"}}>{fmt(montoValidacion)}</span>
+              </div>
+              {coseguro>0&&<div style={{display:"flex",justifyContent:"space-between",padding:"7px 0",borderBottom:"1px solid #f1f5f9",fontSize:12}}>
+                <span style={{color:"#15803d"}}>Coseguro</span><span style={{fontWeight:600,color:"#15803d"}}>{fmt(coseguro)}</span>
+              </div>}
+            </div>
+          )}
           <div style={{display:"flex",justifyContent:"space-between",padding:"12px 0",borderTop:"3px solid #0ea5e9"}}>
-            <span style={{fontWeight:800,fontSize:16}}>TOTAL</span>
-            <span style={{fontWeight:800,fontSize:20,color:"#0ea5e9"}}>{fmt(total)}</span>
+            <span style={{fontWeight:800,fontSize:16}}>TOTAL A COBRAR</span>
+            <span style={{fontWeight:800,fontSize:20,color:"#0ea5e9"}}>{fmt(totalACobrar)}</span>
           </div>
           <div style={{height:6,background:"#f1f5f9",borderRadius:4,overflow:"hidden",marginBottom:8}}>
-            <div style={{height:"100%",borderRadius:4,width:`${Math.min(100,(totalPagado/(total||1))*100)}%`,background:completo?"#10b981":"#0ea5e9",transition:"width .3s"}}/>
+            <div style={{height:"100%",borderRadius:4,width:`${Math.min(100,(totalPagado/(totalACobrar||1))*100)}%`,background:completo?"#10b981":"#0ea5e9",transition:"width .3s"}}/>
           </div>
           {pendiente>0&&<div style={{display:"flex",justifyContent:"space-between",padding:"10px 12px",background:"#fef3c7",borderRadius:9,marginBottom:10}}>
             <span style={{color:"#92400e",fontWeight:700,fontSize:13}}>⚠ Pendiente</span><span style={{fontWeight:800,color:"#92400e"}}>{fmt(pendiente)}</span>
@@ -864,7 +878,7 @@ function Facturacion({ obrasSociales, clientes }) {
             <span style={{color:"#065f46",fontWeight:700}}>💵 Vuelto</span><span style={{fontWeight:800,color:"#065f46",fontSize:16}}>{fmt(vuelto)}</span>
           </div>}
           <button onClick={()=>completo&&setStep("ok")} disabled={!completo} style={{width:"100%",padding:"14px",background:completo?"#10b981":"#e2e8f0",color:completo?"#fff":"#94a3b8",border:"none",borderRadius:12,fontWeight:800,fontSize:15,cursor:completo?"pointer":"not-allowed",transition:"all .2s",boxShadow:completo?"0 4px 16px #10b98140":"none"}}>
-            {completo?`✓ Confirmar ${fmt(total)}`:`Faltan ${fmt(pendiente)}`}
+            {completo?`✓ Confirmar ${fmt(totalACobrar)}`:`Faltan ${fmt(pendiente)}`}
           </button>
         </div>
       </div>
@@ -876,112 +890,138 @@ function Facturacion({ obrasSociales, clientes }) {
       <div>
         <h2 style={{margin:"0 0 12px",fontSize:20,fontWeight:800,color:"#1e293b"}}>Nueva Venta</h2>
 
-        {/* Header compacto: Vendedor · Cliente · Obra social */}
+        {/* Header: Vendedor / Cliente / Obra social / Plan */}
         <div style={{background:"#fff",borderRadius:12,padding:"10px 14px",border:"1px solid #e2e8f0",marginBottom:12}}>
-          <div style={{display:"flex",alignItems:"center",gap:12,flexWrap:"wrap"}}>
-          <div style={{display:"flex",alignItems:"center",gap:6,flex:1,minWidth:120}}>
-            <span style={{fontSize:10,color:"#94a3b8",fontWeight:700,whiteSpace:"nowrap"}}>Vendedor</span>
-            <div style={{position:"relative",flex:1,minWidth:100}}>
-              <input ref={refVendedor} value={vendedor} onChange={e=>{setVendedor(e.target.value);setShowVendedores(true);setHighlightVendedor(0);}}
-                onFocus={()=>{setShowVendedores(true);setHighlightVendedor(0);}} onBlur={()=>setTimeout(()=>setShowVendedores(false),150)}
-                onKeyDown={e=>{
-                  if(showVendedores&&vendedoresFilt.length>0){
-                    if(e.key==="ArrowDown"){e.preventDefault();setHighlightVendedor(i=>Math.min(i+1,vendedoresFilt.length-1));return;}
-                    if(e.key==="ArrowUp"){e.preventDefault();setHighlightVendedor(i=>Math.max(i-1,0));return;}
-                    if(e.key==="Enter"){e.preventDefault();selVendedor(vendedoresFilt[Math.min(highlightVendedor,vendedoresFilt.length-1)]);return;}
-                  }
-                  if(e.key==="Enter"){e.preventDefault();refCliente.current?.focus();}
-                }}
-                placeholder="Mostrador"
-                style={{width:"100%",padding:"6px 10px",borderRadius:6,border:"1px solid #e2e8f0",fontSize:12,outline:"none",boxSizing:"border-box"}}/>
-              {showVendedores&&vendedoresFilt.length>0&&(
-                <div style={{position:"absolute",left:0,right:0,top:"100%",marginTop:2,background:"#fff",borderRadius:8,boxShadow:"0 12px 28px #0002",border:"1px solid #e2e8f0",zIndex:40,maxHeight:160,overflowY:"auto"}}>
-                  {vendedoresFilt.map((v,i)=>(
-                    <div key={v.id} ref={i===highlightVendedor?refHighlightVendedor:undefined} onClick={()=>selVendedor(v)} onMouseEnter={()=>setHighlightVendedor(i)}
-                      style={{padding:"8px 10px",cursor:"pointer",fontSize:12,borderBottom:"1px solid #f8fafc",background:i===highlightVendedor?"#f0f9ff":"#fff"}}>{v.nombre}</div>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-          <div style={{display:"flex",alignItems:"center",gap:6,flex:1,minWidth:120}}>
-            <span style={{fontSize:10,color:"#94a3b8",fontWeight:700,whiteSpace:"nowrap"}}>Cliente</span>
-            <div style={{position:"relative",flex:1,minWidth:100}}>
-              <input ref={refCliente} value={cliente} onChange={e=>{setCliente(e.target.value);setShowClientes(true);setHighlightCliente(0);}}
-                onFocus={()=>{setShowClientes(true);setHighlightCliente(0);}} onBlur={()=>setTimeout(()=>setShowClientes(false),150)}
-                onKeyDown={e=>{
-                  if(showClientes&&clientesFilt.length>0){
-                    if(e.key==="ArrowDown"){e.preventDefault();setHighlightCliente(i=>Math.min(i+1,clientesFilt.length-1));return;}
-                    if(e.key==="ArrowUp"){e.preventDefault();setHighlightCliente(i=>Math.max(i-1,0));return;}
-                    if(e.key==="Enter"){e.preventDefault();selCliente(clientesFilt[Math.min(highlightCliente,clientesFilt.length-1)]);return;}
-                  }
-                  if(e.key==="Enter"){e.preventDefault();refOS.current?.focus();}
-                }}
-                placeholder="Mostrador"
-                style={{width:"100%",padding:"6px 10px",borderRadius:6,border:"1px solid #e2e8f0",fontSize:12,outline:"none",boxSizing:"border-box"}}/>
-              {showClientes&&clientesFilt.length>0&&(
-                <div style={{position:"absolute",left:0,right:0,top:"100%",marginTop:2,background:"#fff",borderRadius:8,boxShadow:"0 12px 28px #0002",border:"1px solid #e2e8f0",zIndex:40,maxHeight:160,overflowY:"auto"}}>
-                  {clientesFilt.map((c,i)=>(
-                    <div key={c.id} ref={i===highlightCliente?refHighlightCliente:undefined} onClick={()=>selCliente(c)} onMouseEnter={()=>setHighlightCliente(i)}
-                      style={{padding:"8px 10px",cursor:"pointer",fontSize:12,borderBottom:"1px solid #f8fafc",background:i===highlightCliente?"#f0f9ff":"#fff"}}>
-                      {c.nombre} {c.dni&&<span style={{color:"#94a3b8",fontSize:10}}>({c.dni})</span>}
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+
+            {/* Columna izquierda: Vendedor / Cliente */}
+            <div style={{display:"flex",flexDirection:"column",gap:8}}>
+              <div style={{display:"flex",alignItems:"center",gap:6}}>
+                <span style={{fontSize:10,color:"#94a3b8",fontWeight:700,whiteSpace:"nowrap"}}>Vendedor</span>
+                <div style={{position:"relative",flex:1,minWidth:100}}>
+                  <input ref={refVendedor} value={vendedor} onChange={e=>{setVendedor(e.target.value);setShowVendedores(true);setHighlightVendedor(0);}}
+                    onFocus={()=>{setShowVendedores(true);setHighlightVendedor(0);}} onBlur={()=>setTimeout(()=>setShowVendedores(false),150)}
+                    onKeyDown={e=>{
+                      if(showVendedores&&vendedoresFilt.length>0){
+                        if(e.key==="ArrowDown"){e.preventDefault();setHighlightVendedor(i=>Math.min(i+1,vendedoresFilt.length-1));return;}
+                        if(e.key==="ArrowUp"){e.preventDefault();setHighlightVendedor(i=>Math.max(i-1,0));return;}
+                        if(e.key==="Enter"){e.preventDefault();selVendedor(vendedoresFilt[Math.min(highlightVendedor,vendedoresFilt.length-1)]);return;}
+                      }
+                      if(e.key==="Enter"){e.preventDefault();refCliente.current?.focus();}
+                    }}
+                    placeholder="Mostrador"
+                    style={{width:"100%",padding:"6px 10px",borderRadius:6,border:"1px solid #e2e8f0",fontSize:12,outline:"none",boxSizing:"border-box"}}/>
+                  {showVendedores&&vendedoresFilt.length>0&&(
+                    <div style={{position:"absolute",left:0,right:0,top:"100%",marginTop:2,background:"#fff",borderRadius:8,boxShadow:"0 12px 28px #0002",border:"1px solid #e2e8f0",zIndex:40,maxHeight:160,overflowY:"auto"}}>
+                      {vendedoresFilt.map((v,i)=>(
+                        <div key={v.id} ref={i===highlightVendedor?refHighlightVendedor:undefined} onClick={()=>selVendedor(v)} onMouseEnter={()=>setHighlightVendedor(i)}
+                          style={{padding:"8px 10px",cursor:"pointer",fontSize:12,borderBottom:"1px solid #f8fafc",background:i===highlightVendedor?"#f0f9ff":"#fff"}}>{v.nombre}</div>
+                      ))}
                     </div>
-                  ))}
+                  )}
                 </div>
-              )}
-            </div>
-          </div>
-          <div style={{display:"flex",alignItems:"center",gap:6,flex:1,minWidth:140}}>
-            <span style={{fontSize:10,color:"#94a3b8",fontWeight:700,whiteSpace:"nowrap"}}>Obra social</span>
-            <div style={{position:"relative",flex:1,minWidth:100}}>
-              <input ref={refOS} value={osInput} onChange={e=>{setOSInput(e.target.value);setShowOS(true);setHighlightOS(0);setOSListaCompleta(false);}}
-                onFocus={()=>{setShowOS(true);setHighlightOS(0);setOSListaCompleta(true);}} onBlur={()=>setTimeout(()=>setShowOS(false),150)}
-                onKeyDown={e=>{
-                  const listaMostrar=osListaCompleta?listaOS:osFilt;
-                  if(showOS&&listaMostrar.length>0){
-                    if(e.key==="ArrowDown"){e.preventDefault();setHighlightOS(i=>Math.min(i+1,listaMostrar.length-1));return;}
-                    if(e.key==="ArrowUp"){e.preventDefault();setHighlightOS(i=>Math.max(i-1,0));return;}
-                    if(e.key==="Enter"){e.preventDefault();selOSItem(listaMostrar[Math.min(highlightOS,listaMostrar.length-1)]);return;}
-                  }
-                  if(e.key==="Enter"){e.preventDefault();refBuscar.current?.focus();}
-                }}
-                placeholder="Venta al público"
-                style={{width:"100%",padding:"6px 10px",borderRadius:6,border:"1px solid #e2e8f0",fontSize:12,outline:"none",boxSizing:"border-box"}}/>
-              {showOS&&(osListaCompleta?listaOS:osFilt).length>0&&(
-                <div style={{position:"absolute",left:0,right:0,top:"100%",marginTop:2,background:"#fff",borderRadius:8,boxShadow:"0 12px 28px #0002",border:"1px solid #e2e8f0",zIndex:40,maxHeight:160,overflowY:"auto"}}>
-                  {(osListaCompleta?listaOS:osFilt).map((o,i)=>(
-                    <div key={o.id} ref={i===highlightOS?refHighlightOS:undefined} onClick={()=>selOSItem(o)} onMouseEnter={()=>setHighlightOS(i)}
-                      style={{padding:"8px 10px",cursor:"pointer",fontSize:12,borderBottom:"1px solid #f8fafc",background:i===highlightOS?"#f0f9ff":"#fff"}}>
-                      {o.nombre} {o.codigo&&<span style={{color:"#94a3b8",fontSize:10}}>({o.codigo})</span>}
+              </div>
+
+              <div style={{display:"flex",alignItems:"center",gap:6}}>
+                <span style={{fontSize:10,color:"#94a3b8",fontWeight:700,whiteSpace:"nowrap"}}>Cliente</span>
+                <div style={{position:"relative",flex:1,minWidth:100}}>
+                  <input ref={refCliente} value={cliente} onChange={e=>{setCliente(e.target.value);setShowClientes(true);setHighlightCliente(0);}}
+                    onFocus={()=>{setShowClientes(true);setHighlightCliente(0);}} onBlur={()=>setTimeout(()=>setShowClientes(false),150)}
+                    onKeyDown={e=>{
+                      if(showClientes&&clientesFilt.length>0){
+                        if(e.key==="ArrowDown"){e.preventDefault();setHighlightCliente(i=>Math.min(i+1,clientesFilt.length-1));return;}
+                        if(e.key==="ArrowUp"){e.preventDefault();setHighlightCliente(i=>Math.max(i-1,0));return;}
+                        if(e.key==="Enter"){e.preventDefault();selCliente(clientesFilt[Math.min(highlightCliente,clientesFilt.length-1)]);return;}
+                      }
+                      if(e.key==="Enter"){e.preventDefault();refOS.current?.focus();}
+                    }}
+                    placeholder="Mostrador"
+                    style={{width:"100%",padding:"6px 10px",borderRadius:6,border:"1px solid #e2e8f0",fontSize:12,outline:"none",boxSizing:"border-box"}}/>
+                  {showClientes&&clientesFilt.length>0&&(
+                    <div style={{position:"absolute",left:0,right:0,top:"100%",marginTop:2,background:"#fff",borderRadius:8,boxShadow:"0 12px 28px #0002",border:"1px solid #e2e8f0",zIndex:40,maxHeight:160,overflowY:"auto"}}>
+                      {clientesFilt.map((c,i)=>(
+                        <div key={c.id} ref={i===highlightCliente?refHighlightCliente:undefined} onClick={()=>selCliente(c)} onMouseEnter={()=>setHighlightCliente(i)}
+                          style={{padding:"8px 10px",cursor:"pointer",fontSize:12,borderBottom:"1px solid #f8fafc",background:i===highlightCliente?"#f0f9ff":"#fff"}}>
+                          {c.nombre} {c.dni&&<span style={{color:"#94a3b8",fontSize:10}}>({c.dni})</span>}
+                        </div>
+                      ))}
                     </div>
-                  ))}
+                  )}
                 </div>
-              )}
+              </div>
             </div>
-          </div>
-          </div>
-          {/* Especificaciones obra social — debajo de los placeholders */}
-          {((osSel&&osSel.programas?.length>0)||(osSel&&programaSel))&&(
-            <div style={{display:"flex",alignItems:"center",gap:12,flexWrap:"wrap",marginTop:12,paddingTop:12,borderTop:"1px solid #f1f5f9"}}>
-              {osSel?.programas?.length>0&&(
-                <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
-                  {osSel.programas.map(p=>(
-                    <button key={p.id} onClick={()=>selProg(p)}
-                      style={{padding:"4px 10px",borderRadius:6,fontSize:11,fontWeight:700,cursor:"pointer",
-                        border:`1px solid ${programaSel?.id===p.id?"#8b5cf6":"#e2e8f0"}`,
-                        background:programaSel?.id===p.id?"#ede9fe":"#f8fafc",color:programaSel?.id===p.id?"#7c3aed":"#64748b"}}>
-                      {p.nombre} {p.descuento}%
-                    </button>
-                  ))}
+
+            {/* Columna derecha: Obra social / Plan */}
+            <div style={{display:"flex",flexDirection:"column",gap:8}}>
+              <div style={{display:"flex",alignItems:"center",gap:6}}>
+                <span style={{fontSize:10,color:"#94a3b8",fontWeight:700,whiteSpace:"nowrap"}}>Obra social</span>
+                <div style={{position:"relative",flex:1,minWidth:100}}>
+                  <input ref={refOS} value={osInput} onChange={e=>{setOSInput(e.target.value);setShowOS(true);setHighlightOS(0);setOSListaCompleta(false);}}
+                    onFocus={()=>{setShowOS(true);setHighlightOS(0);setOSListaCompleta(true);}} onBlur={()=>setTimeout(()=>setShowOS(false),150)}
+                    onKeyDown={e=>{
+                      const listaMostrar=osListaCompleta?listaOS:osFilt;
+                      if(showOS&&listaMostrar.length>0){
+                        if(e.key==="ArrowDown"){e.preventDefault();setHighlightOS(i=>Math.min(i+1,listaMostrar.length-1));return;}
+                        if(e.key==="ArrowUp"){e.preventDefault();setHighlightOS(i=>Math.max(i-1,0));return;}
+                        if(e.key==="Enter"){e.preventDefault();selOSItem(listaMostrar[Math.min(highlightOS,listaMostrar.length-1)]);return;}
+                      }
+                      if(e.key==="Enter"){e.preventDefault();refBuscar.current?.focus();}
+                    }}
+                    placeholder="Venta al público"
+                    style={{width:"100%",padding:"6px 10px",borderRadius:6,border:"1px solid #e2e8f0",fontSize:12,outline:"none",boxSizing:"border-box"}}/>
+                  {showOS&&(osListaCompleta?listaOS:osFilt).length>0&&(
+                    <div style={{position:"absolute",left:0,right:0,top:"100%",marginTop:2,background:"#fff",borderRadius:8,boxShadow:"0 12px 28px #0002",border:"1px solid #e2e8f0",zIndex:40,maxHeight:160,overflowY:"auto"}}>
+                      {(osListaCompleta?listaOS:osFilt).map((o,i)=>(
+                        <div key={o.id} ref={i===highlightOS?refHighlightOS:undefined} onClick={()=>selOSItem(o)} onMouseEnter={()=>setHighlightOS(i)}
+                          style={{padding:"8px 10px",cursor:"pointer",fontSize:12,borderBottom:"1px solid #f8fafc",background:i===highlightOS?"#f0f9ff":"#fff"}}>
+                          {o.nombre} {o.codigo&&<span style={{color:"#94a3b8",fontSize:10}}>({o.codigo})</span>}
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
-              )}
-              {osSel&&programaSel&&(
-                <div style={{display:"flex",alignItems:"center",gap:8,fontSize:11}}>
-                  <span style={{color:"#7c3aed",fontWeight:700}}>−{programaSel.descuento}%</span>
-                  <input type="number" value={coseguroEdit} onChange={e=>setCoseguro(e.target.value)}
-                    placeholder="Coseguro" style={{width:70,padding:"4px 6px",borderRadius:6,border:"1px solid #bbf7d0",fontSize:11,outline:"none",boxSizing:"border-box"}}/>
+              </div>
+
+              <div style={{display:"flex",alignItems:"center",gap:6}}>
+                <span style={{fontSize:10,color:"#94a3b8",fontWeight:700,whiteSpace:"nowrap"}}>Plan / Programa</span>
+                <div style={{flex:1,minWidth:100}}>
+                  <select
+                    value={programaSel?.id || ""}
+                    onChange={e=>{
+                      const id = e.target.value ? parseInt(e.target.value,10) : null;
+                      const prog = id && osSel?.programas ? osSel.programas.find(p=>p.id===id) : null;
+                      selProg(prog || null);
+                    }}
+                    disabled={!osSel || !osSel.programas?.length || osSel===VENTA_PUBLICO}
+                    style={{width:"100%",padding:"6px 10px",borderRadius:6,border:"1px solid #e2e8f0",fontSize:12,outline:"none",boxSizing:"border-box",background:(!osSel || !osSel.programas?.length || osSel===VENTA_PUBLICO)?"#f9fafb":"#fff",color:"#0f172a"}}
+                  >
+                    <option value="">{!osSel || osSel===VENTA_PUBLICO ? "Sin plan (venta al público)" : "Seleccionar plan..."}</option>
+                    {osSel?.programas?.map(p=>(
+                      <option key={p.id} value={p.id}>{p.nombre} {p.descuento}%</option>
+                    ))}
+                  </select>
                 </div>
-              )}
+              </div>
+            </div>
+
+          </div>
+
+          {/* Especificaciones obra social / plan */}
+          {osSel&&programaSel&&(
+            <div style={{display:"flex",alignItems:"center",gap:12,flexWrap:"wrap",marginTop:12,paddingTop:12,borderTop:"1px solid #f1f5f9",fontSize:11}}>
+              <div style={{color:"#7c3aed",fontWeight:700}}>
+                {osSel.nombre} · {programaSel.nombre} — {programaSel.descuento}% cobertura
+              </div>
+              <div style={{display:"flex",alignItems:"center",gap:8}}>
+                <span style={{color:"#7c3aed",fontWeight:700}}>Descuento aprox: {fmt(descOS)}</span>
+                <input
+                  type="number"
+                  value={coseguroEdit}
+                  onChange={e=>setCoseguro(e.target.value)}
+                  placeholder="Coseguro"
+                  style={{width:80,padding:"4px 6px",borderRadius:6,border:"1px solid #bbf7d0",fontSize:11,outline:"none",boxSizing:"border-box"}}
+                />
+              </div>
             </div>
           )}
         </div>
@@ -1388,6 +1428,511 @@ function ABMObrasSociales({ obrasSociales, setObrasSociales }) {
                       ))}
                     </tbody>
                   </table>
+                )}
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ── ABM VADEMÉCUMS ───────────────────────────────────────────────────────────
+const VADEMECUM_FORM_VACIO = { nombre: "", descripcion: "", activo: true };
+
+function ABMVademecums({ vademecums, setVademecums, productos, obrasSociales }) {
+  const [vadModal, setVadModal]       = useState(null);   // null | { modo: "nuevo"|"editar", vademecum? }
+  const [vadForm, setVadForm]         = useState(VADEMECUM_FORM_VACIO);
+  const [vadErrs, setVadErrs]         = useState({});
+  const [desplegada, setDesplegada]   = useState(null);   // id vademecum expandido
+  const [confBaja, setConfBaja]       = useState(null);   // { vademecum }
+  const [modalProducto, setModalProducto] = useState(null);   // { vademecum } → agregar producto
+  const [prodSel, setProdSel]         = useState(null);   // producto_id para agregar
+
+  const abrirNuevo = () => { setVadForm(VADEMECUM_FORM_VACIO); setVadErrs({}); setVadModal({ modo: "nuevo" }); };
+  const abrirEditar = v => { setVadForm({ nombre: v.nombre || "", descripcion: v.descripcion || "", activo: v.activo !== false }); setVadErrs({}); setVadModal({ modo: "editar", vademecum: v }); };
+
+  const validar = f => {
+    const e = {};
+    if (!(f.nombre || "").trim()) e.nombre = "Requerido";
+    setVadErrs(e);
+    return Object.keys(e).length === 0;
+  };
+
+  const guardar = () => {
+    if (!validar(vadForm)) return;
+    const data = { nombre: vadForm.nombre.trim(), descripcion: (vadForm.descripcion || "").trim(), activo: vadForm.activo };
+    if (vadModal.modo === "nuevo") {
+      setVademecums(prev => [...prev, { id: Date.now(), ...data, productos: [], planes: [] }]);
+    } else {
+      setVademecums(prev => prev.map(v => v.id === vadModal.vademecum.id ? { ...v, ...data } : v));
+    }
+    setVadModal(null);
+  };
+
+  const eliminar = v => {
+    setVademecums(prev => prev.filter(x => x.id !== v.id));
+    setConfBaja(null);
+  };
+
+  const toggleActiva = v => setVademecums(prev => prev.map(x => x.id === v.id ? { ...x, activo: !x.activo } : x));
+
+  const agregarProducto = (vademecum, productoId, prioridad, observacion) => {
+    const p = productos.find(pr => pr.id === productoId);
+    if (!p) return;
+    const ya = (vademecum.productos || []).some(pp => pp.producto_id === productoId);
+    if (ya) return;
+    setVademecums(prev => prev.map(v => v.id === vademecum.id
+      ? { ...v, productos: [...(v.productos || []), { producto_id: productoId, producto_nombre: p.nombre, prioridad: prioridad || null, observacion: (observacion || "").trim() || null }] }
+      : v));
+    setModalProducto(null);
+    setProdSel(null);
+  };
+
+  const quitarProducto = (vademecum, productoId) => {
+    setVademecums(prev => prev.map(v => v.id === vademecum.id
+      ? { ...v, productos: (v.productos || []).filter(pp => pp.producto_id !== productoId) }
+      : v));
+  };
+
+  // Asociación con planes se implementará más adelante
+
+  const fld = (form, setForm, errs, key, label, type = "text", opts = {}) => {
+    const err = errs[key];
+    return (
+      <div>
+        <label style={{ fontSize: 11, color: err ? "#ef4444" : "#64748b", fontWeight: 700, display: "block", marginBottom: 4 }}>
+          {label}{opts.req !== false && <span style={{ color: "#ef4444" }}> *</span>}
+          {err && <span style={{ marginLeft: 6, fontSize: 10, color: "#ef4444" }}>{err}</span>}
+        </label>
+        <input type={type} value={form[key]} placeholder={opts.ph || ""}
+          onChange={e => setForm({ ...form, [key]: type === "checkbox" ? e.target.checked : e.target.value })}
+          style={{ width: "100%", padding: "9px 11px", borderRadius: 9, border: `1.5px solid ${err ? "#ef4444" : "#e2e8f0"}`, fontSize: 13, outline: "none", boxSizing: "border-box", background: err ? "#fff5f5" : "#fff" }} />
+      </div>
+    );
+  };
+
+  return (
+    <div>
+      {confBaja && (
+        <Overlay onClose={() => setConfBaja(null)} zIndex={300}>
+          <div style={{ background: "#fff", borderRadius: 16, padding: 28, maxWidth: 380, width: "90%", boxShadow: "0 24px 60px #0008" }}>
+            <div style={{ fontSize: 28, textAlign: "center", marginBottom: 12 }}>⚠️</div>
+            <div style={{ fontWeight: 800, fontSize: 16, color: "#1e293b", textAlign: "center", marginBottom: 8 }}>Eliminar vademécum</div>
+            <div style={{ fontSize: 13, color: "#64748b", textAlign: "center", marginBottom: 20 }}>¿Eliminar &quot;{confBaja.nombre}&quot;?</div>
+            <div style={{ display: "flex", gap: 10 }}>
+              <button onClick={() => setConfBaja(null)} style={{ flex: 1, padding: "11px", background: "#f1f5f9", border: "none", borderRadius: 10, fontWeight: 700, cursor: "pointer", color: "#64748b" }}>Cancelar</button>
+              <button onClick={() => eliminar(confBaja)} style={{ flex: 1, padding: "11px", background: "#ef4444", color: "#fff", border: "none", borderRadius: 10, fontWeight: 800, cursor: "pointer" }}>Eliminar</button>
+            </div>
+          </div>
+        </Overlay>
+      )}
+
+      {vadModal && (
+        <Overlay onClose={() => setVadModal(null)} zIndex={200}>
+          <div style={{ background: "#fff", borderRadius: 20, width: "100%", maxWidth: 440, boxShadow: "0 32px 80px #0008" }}>
+            <div style={{ padding: "18px 22px", borderBottom: "1px solid #e2e8f0", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <div style={{ fontWeight: 800, fontSize: 16, color: "#0f172a" }}>{vadModal.modo === "nuevo" ? "➕ Nuevo vademécum" : "✏️ Editar vademécum"}</div>
+              <button onClick={() => setVadModal(null)} style={{ background: "#f1f5f9", border: "none", borderRadius: 8, padding: "6px 13px", cursor: "pointer", fontWeight: 700, color: "#64748b" }}>✕</button>
+            </div>
+            <div style={{ padding: 22 }}>
+              {fld(vadForm, setVadForm, vadErrs, "nombre", "Nombre")}
+              <div style={{ marginTop: 14 }}>{fld(vadForm, setVadForm, vadErrs, "descripcion", "Descripción", "text", { req: false })}</div>
+              <div style={{ marginTop: 14, display: "flex", alignItems: "center", gap: 8 }}>
+                <input type="checkbox" checked={vadForm.activo} onChange={e => setVadForm({ ...vadForm, activo: e.target.checked })} />
+                <label style={{ fontSize: 13, fontWeight: 600, color: "#475569" }}>Activo</label>
+              </div>
+              <div style={{ marginTop: 22, display: "flex", gap: 10 }}>
+                <button onClick={() => setVadModal(null)} style={{ flex: 1, padding: "11px", background: "#f1f5f9", border: "none", borderRadius: 10, fontWeight: 700, cursor: "pointer", color: "#64748b" }}>Cancelar</button>
+                <button onClick={guardar} style={{ flex: 1, padding: "11px", background: "#0d9488", color: "#fff", border: "none", borderRadius: 10, fontWeight: 800, cursor: "pointer" }}>Guardar</button>
+              </div>
+            </div>
+          </div>
+        </Overlay>
+      )}
+
+      {modalProducto && (
+        <Overlay onClose={() => { setModalProducto(null); setProdSel(null); }} zIndex={200}>
+          <div style={{ background: "#fff", borderRadius: 20, width: "100%", maxWidth: 420, maxHeight: "85vh", overflow: "auto", boxShadow: "0 32px 80px #0008" }}>
+            <div style={{ padding: "18px 22px", borderBottom: "1px solid #e2e8f0", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <div style={{ fontWeight: 800, fontSize: 15, color: "#0f172a" }}>💊 Agregar producto a &quot;{modalProducto.nombre}&quot;</div>
+              <button onClick={() => { setModalProducto(null); setProdSel(null); }} style={{ background: "#f1f5f9", border: "none", borderRadius: 8, padding: "6px 13px", cursor: "pointer", fontWeight: 700, color: "#64748b" }}>✕</button>
+            </div>
+            <div style={{ padding: 16 }}>
+              <select value={prodSel || ""} onChange={e => setProdSel(e.target.value ? Number(e.target.value) : null)}
+                style={{ width: "100%", padding: "10px 12px", borderRadius: 9, border: "1px solid #e2e8f0", fontSize: 13 }}>
+                <option value="">Seleccionar producto...</option>
+                {(productos || []).filter(p => !(modalProducto.productos || []).some(pp => pp.producto_id === p.id)).map(p => (
+                  <option key={p.id} value={p.id}>{p.nombre}</option>
+                ))}
+              </select>
+              {prodSel && (
+                <div style={{ marginTop: 14 }}>
+                  <button onClick={() => agregarProducto(modalProducto, prodSel, null, null)}
+                    style={{ width: "100%", padding: "10px", background: "#0d9488", color: "#fff", border: "none", borderRadius: 10, fontWeight: 700, cursor: "pointer" }}>Agregar</button>
+                </div>
+              )}
+            </div>
+          </div>
+        </Overlay>
+      )}
+
+      {/* Asociación de planes se agregará más adelante */}
+
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+        <div>
+          <h2 style={{ margin: 0, fontSize: 22, fontWeight: 800, color: "#1e293b" }}>Vademécums</h2>
+          <div style={{ fontSize: 12, color: "#64748b", marginTop: 3 }}>{vademecums.length} vademécum(s) · Gestión de productos por vademécum</div>
+        </div>
+        <button onClick={abrirNuevo} style={{ display: "flex", alignItems: "center", gap: 8, background: "#0d9488", color: "#fff", border: "none", borderRadius: 10, padding: "10px 20px", fontWeight: 700, cursor: "pointer", fontSize: 13, boxShadow: "0 4px 12px #0d948830" }}>
+          <Icon name="plus" size={15} />Nuevo vademécum
+        </button>
+      </div>
+
+      <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+        {vademecums.length === 0 && (
+          <div style={{ background: "#fff", borderRadius: 14, padding: 40, textAlign: "center", color: "#94a3b8", border: "1px solid #e2e8f0" }}>
+            <div style={{ fontSize: 32, marginBottom: 8 }}>📋</div>
+            Sin vademécums. Hacé clic en &quot;Nuevo vademécum&quot; para crear uno.
+          </div>
+        )}
+        {vademecums.map(v => (
+          <div key={v.id} style={{ background: "#fff", borderRadius: 14, border: `1.5px solid ${v.activo ? "#e2e8f0" : "#f1f5f9"}`, overflow: "hidden", opacity: v.activo ? 1 : 0.7 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "14px 18px" }}>
+              <div style={{ width: 42, height: 42, borderRadius: 11, background: v.activo ? "#ccfbf1" : "#f1f5f9", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 800, fontSize: 15, color: v.activo ? "#0d9488" : "#94a3b8", flexShrink: 0 }}>
+                <Icon name="book" size={20} />
+              </div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <span style={{ fontWeight: 700, fontSize: 15, color: "#1e293b" }}>{v.nombre}</span>
+                  <span style={{ fontSize: 10, background: v.activo ? "#d1fae5" : "#f1f5f9", color: v.activo ? "#065f46" : "#94a3b8", borderRadius: 6, padding: "2px 8px", fontWeight: 700 }}>{v.activo ? "ACTIVO" : "INACTIVO"}</span>
+                  <span style={{ fontSize: 11, background: "#e0f2fe", color: "#0284c7", borderRadius: 6, padding: "2px 8px", fontWeight: 600 }}>{(v.productos || []).length} prod.</span>
+                </div>
+                {v.descripcion && <div style={{ fontSize: 12, color: "#64748b", marginTop: 2 }}>{v.descripcion}</div>}
+              </div>
+              <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
+                <button onClick={() => setModalProducto(v)} style={{ display: "flex", alignItems: "center", gap: 5, background: "#f0f9ff", color: "#0284c7", border: "1px solid #bae6fd", borderRadius: 8, padding: "6px 11px", cursor: "pointer", fontSize: 11, fontWeight: 700 }}><Icon name="plus" size={11} />Producto</button>
+                <button onClick={() => toggleActiva(v)} style={{ background: v.activo ? "#fef3c7" : "#f0fdf4", color: v.activo ? "#92400e" : "#15803d", border: `1px solid ${v.activo ? "#fde68a" : "#bbf7d0"}`, borderRadius: 8, padding: "6px 11px", cursor: "pointer", fontSize: 11, fontWeight: 700 }}>{v.activo ? "Desactivar" : "Activar"}</button>
+                <button onClick={() => abrirEditar(v)} style={{ background: "#f8fafc", color: "#64748b", border: "1px solid #e2e8f0", borderRadius: 8, padding: "6px 10px", cursor: "pointer" }}><Icon name="edit" size={13} /></button>
+                <button onClick={() => setConfBaja(v)} style={{ background: "#fee2e2", color: "#ef4444", border: "1px solid #fecaca", borderRadius: 8, padding: "6px 10px", cursor: "pointer" }}><Icon name="x" size={13} /></button>
+                <button onClick={() => setDesplegada(desplegada === v.id ? null : v.id)} style={{ background: "#f8fafc", color: "#64748b", border: "1px solid #e2e8f0", borderRadius: 8, padding: "6px 12px", cursor: "pointer", fontSize: 11, fontWeight: 700 }}>{desplegada === v.id ? "▲ Ocultar" : "▼ Ver detalle"}</button>
+              </div>
+            </div>
+            {desplegada === v.id && (
+              <div style={{ borderTop: "1px solid #f1f5f9", background: "#fafafa", padding: "16px 18px" }}>
+                <div>
+                  <div style={{ fontWeight: 700, fontSize: 12, color: "#64748b", marginBottom: 8 }}>Productos en este vademécum</div>
+                  {(v.productos || []).length === 0 ? <div style={{ fontSize: 12, color: "#94a3b8" }}>Ninguno</div> : (
+                    <ul style={{ margin: 0, paddingLeft: 18, fontSize: 12 }}>
+                      {(v.productos || []).map(pp => (
+                        <li key={pp.producto_id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+                          <span>{pp.producto_nombre || `ID ${pp.producto_id}`}</span>
+                          <button onClick={() => quitarProducto(v, pp.producto_id)} style={{ background: "#fee2e2", color: "#ef4444", border: "none", borderRadius: 6, padding: "4px 8px", cursor: "pointer", fontSize: 11 }}><Icon name="x" size={11} /></button>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ── ABM PRESTADORES ───────────────────────────────────────────────────────────
+const PRESTADOR_FORM_VACIO = { nombre: "", codigoPrestador: "", activo: true, planes: [] };
+
+function ABMPrestadores({ obrasSociales }) {
+  const [prestadores, setPrestadores] = useState([]);
+  const [form, setForm]              = useState(PRESTADOR_FORM_VACIO);
+  const [errs, setErrs]              = useState({});
+  const [modal, setModal]            = useState(null); // null | { modo, prestador? }
+  const [confBaja, setConfBaja]      = useState(null);
+  const [prestadorDesp, setPrestDesp]= useState(null);
+  const [modalPlan, setModalPlan]    = useState(null); // { prestador }
+  const [planSel, setPlanSel]        = useState("");
+
+  const todosPlanes = useMemo(() =>
+    (obrasSociales || []).flatMap(os =>
+      (os.programas || []).map(p => ({
+        id: p.id,
+        label: `${os.nombre} — ${p.nombre}`,
+        osNombre: os.nombre,
+        programaNombre: p.nombre,
+      }))
+    ),
+    [obrasSociales]
+  );
+
+  const abrirNuevo = () => {
+    setForm(PRESTADOR_FORM_VACIO);
+    setErrs({});
+    setModal({ modo: "nuevo" });
+  };
+
+  const abrirEditar = (pr) => {
+    setForm({
+      nombre: pr.nombre,
+      codigoPrestador: pr.codigoPrestador,
+      activo: pr.activo !== false,
+      planes: pr.planes || [],
+    });
+    setErrs({});
+    setModal({ modo: "editar", prestador: pr });
+  };
+
+  const validar = (f) => {
+    const e = {};
+    if (!(f.nombre || "").trim()) e.nombre = "Requerido";
+    if (!(f.codigoPrestador || "").trim()) e.codigoPrestador = "Requerido";
+    setErrs(e);
+    return Object.keys(e).length === 0;
+  };
+
+  const guardar = () => {
+    if (!validar(form)) return;
+    const data = {
+      nombre: form.nombre.trim(),
+      codigoPrestador: form.codigoPrestador.trim(),
+      activo: form.activo,
+      planes: form.planes || [],
+    };
+    if (modal.modo === "nuevo") {
+      setPrestadores(prev => [...prev, { id: Date.now(), ...data }]);
+    } else {
+      setPrestadores(prev => prev.map(p => p.id === modal.prestador.id ? { ...p, ...data } : p));
+    }
+    setModal(null);
+  };
+
+  const eliminar = (pr) => {
+    setPrestadores(prev => prev.filter(p => p.id !== pr.id));
+    setConfBaja(null);
+  };
+
+  const toggleActivo = (pr) => {
+    setPrestadores(prev => prev.map(p => p.id === pr.id ? { ...p, activo: !p.activo } : p));
+  };
+
+  const agregarPlan = (prestador, planId) => {
+    if (!planId) return;
+    const plan = todosPlanes.find(p => p.id === Number(planId));
+    if (!plan) return;
+    const ya = (prestador.planes || []).some(pl => pl.os_programa_id === plan.id);
+    if (ya) return;
+    setPrestadores(prev => prev.map(p => p.id === prestador.id
+      ? { ...p, planes: [...(p.planes || []), { os_programa_id: plan.id, obra_social: plan.osNombre, programa: plan.programaNombre }] }
+      : p
+    ));
+    setModalPlan(null);
+    setPlanSel("");
+  };
+
+  const quitarPlan = (prestador, os_programa_id) => {
+    setPrestadores(prev => prev.map(p => p.id === prestador.id
+      ? { ...p, planes: (p.planes || []).filter(pl => pl.os_programa_id !== os_programa_id) }
+      : p
+    ));
+  };
+
+  const fld = (key, label, ph = "", type = "text") => {
+    const err = errs[key];
+    return (
+      <div>
+        <label style={{ fontSize: 11, color: err ? "#ef4444" : "#64748b", fontWeight: 700, display: "block", marginBottom: 4 }}>
+          {label}<span style={{ color: "#ef4444" }}> *</span>
+          {err && <span style={{ marginLeft: 6, fontSize: 10, color: "#ef4444" }}>{err}</span>}
+        </label>
+        <input
+          type={type}
+          value={form[key]}
+          placeholder={ph}
+          onChange={e => setForm({ ...form, [key]: e.target.value })}
+          style={{ width: "100%", padding: "9px 11px", borderRadius: 9, border: `1.5px solid ${err ? "#ef4444" : "#e2e8f0"}`, fontSize: 13, outline: "none", boxSizing: "border-box", background: err ? "#fff5f5" : "#fff" }}
+        />
+      </div>
+    );
+  };
+
+  return (
+    <div>
+      {/* Confirmación baja */}
+      {confBaja && (
+        <Overlay onClose={() => setConfBaja(null)} zIndex={300}>
+          <div style={{ background: "#fff", borderRadius: 16, padding: 28, maxWidth: 380, width: "90%", boxShadow: "0 24px 60px #0008" }}>
+            <div style={{ fontSize: 28, textAlign: "center", marginBottom: 12 }}>⚠️</div>
+            <div style={{ fontWeight: 800, fontSize: 16, color: "#1e293b", textAlign: "center", marginBottom: 8 }}>Eliminar prestador</div>
+            <div style={{ fontSize: 13, color: "#64748b", textAlign: "center", marginBottom: 20 }}>¿Eliminar &quot;{confBaja.nombre}&quot;?</div>
+            <div style={{ display: "flex", gap: 10 }}>
+              <button onClick={() => setConfBaja(null)} style={{ flex: 1, padding: "11px", background: "#f1f5f9", border: "none", borderRadius: 10, fontWeight: 700, cursor: "pointer", color: "#64748b" }}>Cancelar</button>
+              <button onClick={() => eliminar(confBaja)} style={{ flex: 1, padding: "11px", background: "#ef4444", color: "#fff", border: "none", borderRadius: 10, fontWeight: 800, cursor: "pointer" }}>Eliminar</button>
+            </div>
+          </div>
+        </Overlay>
+      )}
+
+      {/* Modal prestador */}
+      {modal && (
+        <Overlay onClose={() => setModal(null)} zIndex={200}>
+          <div style={{ background: "#fff", borderRadius: 20, width: "100%", maxWidth: 460, boxShadow: "0 32px 80px #0008" }}>
+            <div style={{ padding: "18px 22px", borderBottom: "1px solid #e2e8f0", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <div style={{ fontWeight: 800, fontSize: 16, color: "#0f172a" }}>{modal.modo === "nuevo" ? "➕ Nuevo Prestador" : "✏️ Editar Prestador"}</div>
+              <button onClick={() => setModal(null)} style={{ background: "#f1f5f9", border: "none", borderRadius: 8, padding: "6px 13px", cursor: "pointer", fontWeight: 700, color: "#64748b" }}>✕</button>
+            </div>
+            <div style={{ padding: 22, display: "flex", flexDirection: "column", gap: 14 }}>
+              {fld("nombre", "Nombre del prestador", "ej: PAMI Mandataria X")}
+              {fld("codigoPrestador", "Código prestador", "ej: 1234-ABC")}
+              <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: "#1f2933", fontWeight: 600, marginTop: 4 }}>
+                <input
+                  type="checkbox"
+                  checked={form.activo}
+                  onChange={e => setForm({ ...form, activo: e.target.checked })}
+                  style={{ width: 16, height: 16 }}
+                />
+                Prestador activo
+              </label>
+              <div style={{ marginTop: 16, display: "flex", gap: 10 }}>
+                <button onClick={() => setModal(null)} style={{ flex: 1, padding: "11px", background: "#f1f5f9", border: "none", borderRadius: 10, fontWeight: 700, cursor: "pointer", color: "#64748b" }}>Cancelar</button>
+                <button onClick={guardar} style={{ flex: 1, padding: "11px", background: "#0f766e", color: "#fff", border: "none", borderRadius: 10, fontWeight: 800, cursor: "pointer" }}>Guardar</button>
+              </div>
+            </div>
+          </div>
+        </Overlay>
+      )}
+
+      {/* Modal agregar plan */}
+      {modalPlan && (
+        <Overlay onClose={() => { setModalPlan(null); setPlanSel(""); }} zIndex={200}>
+          <div style={{ background: "#fff", borderRadius: 20, width: "100%", maxWidth: 460, boxShadow: "0 32px 80px #0008" }}>
+            <div style={{ padding: "18px 22px", borderBottom: "1px solid #e2e8f0", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <div>
+                <div style={{ fontWeight: 800, fontSize: 15, color: "#0f172a" }}>Asociar plan</div>
+                <div style={{ fontSize: 12, color: "#64748b", marginTop: 2 }}>Prestador: {modalPlan.nombre}</div>
+              </div>
+              <button onClick={() => { setModalPlan(null); setPlanSel(""); }} style={{ background: "#f1f5f9", border: "none", borderRadius: 8, padding: "6px 13px", cursor: "pointer", fontWeight: 700, color: "#64748b" }}>✕</button>
+            </div>
+            <div style={{ padding: 22 }}>
+              <label style={{ fontSize: 11, color: "#64748b", fontWeight: 700, display: "block", marginBottom: 6 }}>Plan de obra social</label>
+              <select
+                value={planSel}
+                onChange={e => setPlanSel(e.target.value)}
+                style={{ width: "100%", padding: "10px 12px", borderRadius: 9, border: "1px solid #e2e8f0", fontSize: 13 }}
+              >
+                <option value="">Seleccionar OS / plan...</option>
+                {todosPlanes.map(p => (
+                  <option key={p.id} value={p.id}>{p.label}</option>
+                ))}
+              </select>
+              <button
+                onClick={() => agregarPlan(modalPlan, planSel)}
+                disabled={!planSel}
+                style={{ width: "100%", marginTop: 16, padding: "11px", background: planSel ? "#7c3aed" : "#e2e8f0", color: planSel ? "#fff" : "#94a3b8", border: "none", borderRadius: 10, fontWeight: 700, cursor: planSel ? "pointer" : "not-allowed" }}
+              >
+                Agregar plan
+              </button>
+            </div>
+          </div>
+        </Overlay>
+      )}
+
+      {/* Header */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+        <div>
+          <h2 style={{ margin: 0, fontSize: 22, fontWeight: 800, color: "#1e293b" }}>Prestadores</h2>
+          <div style={{ fontSize: 12, color: "#64748b", marginTop: 3 }}>{prestadores.length} prestador(es) · Código propio por prestador y planes asociados</div>
+        </div>
+        <button
+          onClick={abrirNuevo}
+          style={{ display: "flex", alignItems: "center", gap: 8, background: "#0f766e", color: "#fff", border: "none", borderRadius: 10, padding: "10px 20px", fontWeight: 700, cursor: "pointer", fontSize: 13, boxShadow: "0 4px 12px #0f766e30" }}
+        >
+          <Icon name="plus" size={15} />Nuevo prestador
+        </button>
+      </div>
+
+      {/* Lista prestadores */}
+      <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+        {prestadores.length === 0 && (
+          <div style={{ background: "#fff", borderRadius: 14, padding: 40, textAlign: "center", color: "#94a3b8", border: "1px solid #e2e8f0" }}>
+            <div style={{ fontSize: 32, marginBottom: 8 }}>🏥</div>
+            Sin prestadores. Cargá tu primer prestador con su código.
+          </div>
+        )}
+        {prestadores.map(pr => (
+          <div key={pr.id} style={{ background: "#fff", borderRadius: 14, border: `1.5px solid ${pr.activo ? "#e2e8f0" : "#f1f5f9"}`, overflow: "hidden", opacity: pr.activo ? 1 : 0.7 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "14px 18px" }}>
+              <div style={{ width: 42, height: 42, borderRadius: 11, background: pr.activo ? "#ecfeff" : "#f1f5f9", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 800, fontSize: 16, color: pr.activo ? "#0e7490" : "#94a3b8", flexShrink: 0 }}>
+                {pr.nombre.substring(0, 2).toUpperCase()}
+              </div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <span style={{ fontWeight: 700, fontSize: 15, color: "#1e293b" }}>{pr.nombre}</span>
+                  <span style={{ fontSize: 10, background: pr.activo ? "#d1fae5" : "#f1f5f9", color: pr.activo ? "#065f46" : "#94a3b8", borderRadius: 6, padding: "2px 8px", fontWeight: 700 }}>
+                    {pr.activo ? "ACTIVO" : "INACTIVO"}
+                  </span>
+                  <span style={{ fontSize: 11, background: "#e0f2fe", color: "#0284c7", borderRadius: 6, padding: "2px 8px", fontWeight: 600 }}>
+                    Código: {pr.codigoPrestador}
+                  </span>
+                  <span style={{ fontSize: 11, background: "#f5f3ff", color: "#7c3aed", borderRadius: 6, padding: "2px 8px", fontWeight: 600 }}>
+                    {(pr.planes || []).length} planes
+                  </span>
+                </div>
+              </div>
+              <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
+                <button
+                  onClick={() => setModalPlan(pr)}
+                  style={{ display: "flex", alignItems: "center", gap: 5, background: "#f5f3ff", color: "#7c3aed", border: "1px solid #ddd6fe", borderRadius: 8, padding: "6px 11px", cursor: "pointer", fontSize: 11, fontWeight: 700 }}
+                >
+                  <Icon name="plus" size={11} />Plan
+                </button>
+                <button
+                  onClick={() => toggleActivo(pr)}
+                  style={{ background: pr.activo ? "#fef3c7" : "#f0fdf4", color: pr.activo ? "#92400e" : "#15803d", border: `1px solid ${pr.activo ? "#fde68a" : "#bbf7d0"}`, borderRadius: 8, padding: "6px 11px", cursor: "pointer", fontSize: 11, fontWeight: 700 }}
+                >
+                  {pr.activo ? "Desactivar" : "Activar"}
+                </button>
+                <button
+                  onClick={() => abrirEditar(pr)}
+                  style={{ background: "#f8fafc", color: "#64748b", border: "1px solid #e2e8f0", borderRadius: 8, padding: "6px 10px", cursor: "pointer" }}
+                >
+                  <Icon name="edit" size={13} />
+                </button>
+                <button
+                  onClick={() => setConfBaja(pr)}
+                  style={{ background: "#fee2e2", color: "#ef4444", border: "1px solid #fecaca", borderRadius: 8, padding: "6px 10px", cursor: "pointer" }}
+                >
+                  <Icon name="x" size={13} />
+                </button>
+                <button
+                  onClick={() => setPrestDesp(prestadorDesp === pr.id ? null : pr.id)}
+                  style={{ background: "#f8fafc", color: "#64748b", border: "1px solid #e2e8f0", borderRadius: 8, padding: "6px 12px", cursor: "pointer", fontSize: 11, fontWeight: 700 }}
+                >
+                  {prestadorDesp === pr.id ? "▲ Ocultar" : "▼ Ver detalle"}
+                </button>
+              </div>
+            </div>
+            {prestadorDesp === pr.id && (
+              <div style={{ borderTop: "1px solid #f1f5f9", background: "#fafafa", padding: "14px 18px" }}>
+                <div style={{ fontWeight: 700, fontSize: 12, color: "#64748b", marginBottom: 8 }}>Planes asociados</div>
+                {(pr.planes || []).length === 0 ? (
+                  <div style={{ fontSize: 12, color: "#94a3b8" }}>No hay planes asociados.</div>
+                ) : (
+                  <ul style={{ margin: 0, paddingLeft: 18, fontSize: 12 }}>
+                    {(pr.planes || []).map(pl => (
+                      <li key={pl.os_programa_id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+                        <span>{pl.obra_social} — {pl.programa}</span>
+                        <button
+                          onClick={() => quitarPlan(pr, pl.os_programa_id)}
+                          style={{ background: "#fee2e2", color: "#ef4444", border: "none", borderRadius: 6, padding: "4px 8px", cursor: "pointer", fontSize: 11 }}
+                        >
+                          <Icon name="x" size={11} />
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
                 )}
               </div>
             )}
@@ -3346,9 +3891,11 @@ const NAV=[
   {id:"stock",      label:"Stock",              icon:"box"},      // 4. Productos
   {id:"precios",    label:"Precios",            icon:"pct"},     // 5. Actualización precios
   {id:"os",         label:"Obras Sociales",     icon:"shield"},   // 6. Config OS
-  {id:"clientes",   label:"Clientes",           icon:"users"},   // 7. Config clientes
-  {id:"proveedores",label:"Proveedores",        icon:"truck"},    // 8. Compras
-  {id:"reportes",   label:"Reportes",           icon:"coin"},    // 9. Análisis
+  {id:"vademecums", label:"Vademécums",         icon:"book"},    // 7. Vademécums
+  {id:"prestadores",label:"Prestadores",        icon:"shield"},  // 8. Prestadores
+  {id:"clientes",   label:"Clientes",           icon:"users"},   // 9. Config clientes
+  {id:"proveedores",label:"Proveedores",        icon:"truck"},   // 10. Compras
+  {id:"reportes",   label:"Reportes",           icon:"coin"},    // 11. Análisis
 ];
 
 export default function App() {
@@ -3357,6 +3904,7 @@ export default function App() {
   const [obrasSociales,setObrasSociales]     = useState(OS_INIT);
   const [clientes,setClientes]               = useState(CLIENTES_INIT);
   const [productos,setProductos]             = useState(PRODUCTOS);
+  const [vademecums,setVademecums]           = useState([]);
 
   const handleCobrarFactura = (factura, onPagado) => setCobrandoFactura({factura, onPagado});
 
@@ -3371,6 +3919,8 @@ export default function App() {
       case "stock":       return <Stock {...sharedProds}/>;
       case "precios":     return <ActualizacionPrecios {...sharedProds}/>;
       case "os":          return <ABMObrasSociales {...sharedOS}/>;
+      case "vademecums":  return <ABMVademecums vademecums={vademecums} setVademecums={setVademecums} productos={productos} obrasSociales={obrasSociales}/>;
+      case "prestadores": return <ABMPrestadores obrasSociales={obrasSociales}/>;
       case "clientes":    return <Clientes {...sharedCli}/>;
       case "proveedores": return <Proveedores productos={productos}/>;
       case "caja":        return <Caja/>;
