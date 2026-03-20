@@ -1644,29 +1644,41 @@ function ABMVademecums({ vademecums, setVademecums, productos, obrasSociales }) 
 }
 
 // ── ABM PRESTADORES ───────────────────────────────────────────────────────────
-const PRESTADOR_FORM_VACIO = { nombre: "", codigoPrestador: "", activo: true, planes: [] };
+const PRESTADOR_FORM_VACIO = { nombre: "", codigoPrestador: "", provincia: "Buenos Aires", tipo_liquidacion: "por renglon", activo: true, planes: [] };
+
+const PROVINCIAS_ARG = [
+  "Buenos Aires","CABA","Catamarca","Chaco","Chubut","Córdoba","Corrientes",
+  "Entre Ríos","Formosa","Jujuy","La Pampa","La Rioja","Mendoza","Misiones",
+  "Neuquén","Río Negro","Salta","San Juan","San Luis","Santa Cruz","Santa Fe",
+  "Santiago del Estero","Tierra del Fuego","Tucumán"
+];
+
+const TIPOS_LIQUIDACION = ["por renglon","solo totales","por receta"];
 
 function ABMPrestadores({ obrasSociales }) {
   const [prestadores, setPrestadores] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [errorMsg, setErrorMsg]    = useState(null);
   const [form, setForm]              = useState(PRESTADOR_FORM_VACIO);
   const [errs, setErrs]              = useState({});
   const [modal, setModal]            = useState(null); // null | { modo, prestador? }
   const [confBaja, setConfBaja]      = useState(null);
   const [prestadorDesp, setPrestDesp]= useState(null);
   const [modalPlan, setModalPlan]    = useState(null); // { prestador }
-  const [planSel, setPlanSel]        = useState("");
-
-  const todosPlanes = useMemo(() =>
-    (obrasSociales || []).flatMap(os =>
-      (os.programas || []).map(p => ({
-        id: p.id,
-        label: `${os.nombre} — ${p.nombre}`,
-        osNombre: os.nombre,
-        programaNombre: p.nombre,
-      }))
-    ),
-    [obrasSociales]
-  );
+  const [planForm, setPlanForm]      = useState({ codigo: "", nombre: "", activo: true });
+  const [modalWeb, setModalWeb]      = useState(null); // prestador
+  const [webTiene, setWebTiene]      = useState(false);
+  const [webForm, setWebForm]        = useState({
+    usuario: "",
+    contrasena: "",
+    id_organizacion: "",
+    codigo_prestador: "",
+    wsu_id: "",
+    activo: true,
+  });
+  const [webUrls, setWebUrls]        = useState([]);
+  const [webUrlForm, setWebUrlForm] = useState({ tipo: "", link: "", activo: true });
+  const apiHeaders = { "Content-Type": "application/json" };
 
   const abrirNuevo = () => {
     setForm(PRESTADOR_FORM_VACIO);
@@ -1678,6 +1690,8 @@ function ABMPrestadores({ obrasSociales }) {
     setForm({
       nombre: pr.nombre,
       codigoPrestador: pr.codigoPrestador,
+      provincia: pr.provincia || "Buenos Aires",
+      tipo_liquidacion: pr.tipo_liquidacion || pr.tipoLiquidacion || "por renglon",
       activo: pr.activo !== false,
       planes: pr.planes || [],
     });
@@ -1693,50 +1707,330 @@ function ABMPrestadores({ obrasSociales }) {
     return Object.keys(e).length === 0;
   };
 
+  const normalizarPrestadorListado = (p) => ({
+    id: p.id,
+    nombre: p.nombre,
+    codigoPrestador: p.codigo_prestador,
+    provincia: p.provincia,
+    tipo_liquidacion: p.tipo_liquidacion,
+    activo: p.activo,
+    cant_planes: p.cant_planes,
+    tiene_webservice: !!p.tiene_webservice,
+    cant_web_urls: p.cant_web_urls || 0,
+    planes: [],
+  });
+
+  const normalizarPrestadorDetalle = (d) => ({
+    id: d.id,
+    nombre: d.nombre,
+    codigoPrestador: d.codigo_prestador,
+    provincia: d.provincia,
+    tipo_liquidacion: d.tipo_liquidacion,
+    activo: d.activo,
+    cant_planes: d.planes?.length || 0,
+    tiene_webservice: !!d.tiene_webservice,
+    cant_web_urls: d.cant_web_urls || 0,
+    planes: d.planes || [],
+  });
+
+  const cargarListado = async () => {
+    setLoading(true);
+    setErrorMsg(null);
+    try {
+      const r = await fetch("/api/prestadores");
+      const j = await r.json();
+      if (!r.ok || (!j.ok && j.error)) throw new Error(j.error || "Error al listar prestadores");
+      const data = Array.isArray(j.data) ? j.data.map(normalizarPrestadorListado) : [];
+      setPrestadores(data);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const cargarDetalle = async (id) => {
+    setLoading(true);
+    setErrorMsg(null);
+    try {
+      const r = await fetch(`/api/prestadores/${id}`);
+      const j = await r.json();
+      if (!r.ok || (!j.ok && j.error)) throw new Error(j.error || "Error al cargar detalle");
+      const detalle = normalizarPrestadorDetalle(j.data);
+      setPrestadores(prev => prev.map(p => p.id === id ? detalle : p));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    cargarListado();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const normalizarWebFormFromAPI = (ws) => ({
+    usuario: ws.usuario || "",
+    contrasena: ws.contrasena || "",
+    id_organizacion: ws.id_organizacion || "",
+    codigo_prestador: ws.codigo_prestador || "",
+    wsu_id: ws.wsu_id || "",
+    activo: ws.activo !== false,
+  });
+
+  const abrirWebService = async (pr, opts = {}) => {
+    const { forceCrear = false } = opts;
+    setModalWeb(pr);
+    setErrorMsg(null);
+    setWebTiene(false);
+    setWebUrls([]);
+    setWebUrlForm({ tipo: "", link: "", activo: true });
+    setWebForm({
+      usuario: "",
+      contrasena: "",
+      id_organizacion: "",
+      codigo_prestador: pr.codigoPrestador,
+      wsu_id: "",
+      activo: true,
+    });
+
+    setLoading(true);
+    try {
+      const r = await fetch(`/api/prestadores/${pr.id}/webservice`);
+      if (r.status === 404) {
+        if (forceCrear) {
+          // Si no existe, activamos el checkbox para que "Guardar" cree el registro
+          setWebTiene(true);
+          return { urls: [] };
+        }
+        return;
+      }
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(j.error || "Error al cargar web service");
+
+      setWebTiene(true);
+      setWebForm(normalizarWebFormFromAPI(j.data));
+      const urls = Array.isArray(j.data.urls) ? j.data.urls : [];
+      setWebUrls(urls);
+      return { urls };
+    } catch (err) {
+      setErrorMsg(String(err?.message || err));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const guardarWebService = async () => {
+    if (!modalWeb) return;
+    setErrorMsg(null);
+    setLoading(true);
+    try {
+      if (!webTiene) {
+        const r = await fetch(`/api/prestadores/${modalWeb.id}/webservice`, { method: "DELETE" });
+        const j = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(j.error || "Error al eliminar web service");
+        setModalWeb(null);
+        await cargarListado();
+        return;
+      }
+
+      const body = {
+        usuario: webForm.usuario,
+        contrasena: webForm.contrasena,
+        id_organizacion: webForm.id_organizacion,
+        codigo_prestador: modalWeb.codigoPrestador,
+        wsu_id: webForm.wsu_id,
+        activo: webForm.activo,
+      };
+
+      const r = await fetch(`/api/prestadores/${modalWeb.id}/webservice`, {
+        method: "POST",
+        headers: apiHeaders,
+        body: JSON.stringify(body),
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(j.error || "Error al guardar web service");
+
+      const detalle = await abrirWebService(modalWeb);
+      await cargarListado();
+
+      // Regla de negocio: el web service debe tener al menos 1 URL.
+      const urlsCount = Array.isArray(detalle?.urls) ? detalle.urls.length : 0;
+      if (webTiene && urlsCount === 0) {
+        setErrorMsg("Para guardar/cerrar, el web service debe tener al menos 1 URL.");
+        return;
+      }
+
+      setModalWeb(null);
+    } catch (err) {
+      setErrorMsg(String(err?.message || err));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const agregarWebUrl = async () => {
+    if (!modalWeb) return;
+    const tipo = (webUrlForm.tipo || "").trim();
+    const link = (webUrlForm.link || "").trim();
+    if (!tipo || !link) {
+      setErrorMsg("Completá `Tipo` y `Link` antes de agregar la URL.");
+      return;
+    }
+    setErrorMsg(null);
+    setLoading(true);
+    try {
+      const r = await fetch(`/api/prestadores/${modalWeb.id}/webservice/urls`, {
+        method: "POST",
+        headers: apiHeaders,
+        body: JSON.stringify({ tipo, link, activo: webUrlForm.activo }),
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(j.error || "Error al agregar URL");
+      await abrirWebService(modalWeb);
+      // Limpia el form para que se vea claramente que la URL se agregó
+      setWebUrlForm(prev => ({ ...prev, tipo: "", link: "" }));
+    } catch (err) {
+      setErrorMsg(String(err?.message || err));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const quitarWebUrl = async (urlId) => {
+    if (!modalWeb) return;
+    setErrorMsg(null);
+    setLoading(true);
+    try {
+      const r = await fetch(`/api/prestadores/${modalWeb.id}/webservice/urls/${urlId}`, { method: "DELETE" });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(j.error || "Error al quitar URL");
+      await abrirWebService(modalWeb);
+    } catch (err) {
+      setErrorMsg(String(err?.message || err));
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const guardar = () => {
     if (!validar(form)) return;
-    const data = {
+    const body = {
       nombre: form.nombre.trim(),
-      codigoPrestador: form.codigoPrestador.trim(),
+      codigo_prestador: form.codigoPrestador.trim(),
+      provincia: form.provincia || "Buenos Aires",
+      tipo_liquidacion: form.tipo_liquidacion || "por renglon",
       activo: form.activo,
-      planes: form.planes || [],
     };
-    if (modal.modo === "nuevo") {
-      setPrestadores(prev => [...prev, { id: Date.now(), ...data }]);
-    } else {
-      setPrestadores(prev => prev.map(p => p.id === modal.prestador.id ? { ...p, ...data } : p));
-    }
-    setModal(null);
+
+    (async () => {
+      setLoading(true);
+      setErrorMsg(null);
+      try {
+        if (modal.modo === "nuevo") {
+          const r = await fetch("/api/prestadores", { method: "POST", headers: apiHeaders, body: JSON.stringify(body) });
+          const j = await r.json().catch(() => ({}));
+          if (!r.ok) throw new Error(j.error || "Error al crear prestador");
+        } else {
+          const r = await fetch(`/api/prestadores/${modal.prestador.id}`, { method: "PUT", headers: apiHeaders, body: JSON.stringify(body) });
+          const j = await r.json().catch(() => ({}));
+          if (!r.ok) throw new Error(j.error || "Error al actualizar prestador");
+        }
+        setModal(null);
+        await cargarListado();
+      } catch (err) {
+        setErrorMsg(String(err?.message || err));
+      } finally {
+        setLoading(false);
+      }
+    })();
   };
 
   const eliminar = (pr) => {
-    setPrestadores(prev => prev.filter(p => p.id !== pr.id));
-    setConfBaja(null);
+    (async () => {
+      setLoading(true);
+      setErrorMsg(null);
+      try {
+        const r = await fetch(`/api/prestadores/${pr.id}`, { method: "DELETE" });
+        const j = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(j.error || "Error al eliminar prestador");
+        setConfBaja(null);
+        await cargarListado();
+      } catch (err) {
+        setErrorMsg(String(err?.message || err));
+      } finally {
+        setLoading(false);
+      }
+    })();
   };
 
   const toggleActivo = (pr) => {
-    setPrestadores(prev => prev.map(p => p.id === pr.id ? { ...p, activo: !p.activo } : p));
+    (async () => {
+      setLoading(true);
+      setErrorMsg(null);
+      try {
+        await fetch(`/api/prestadores/${pr.id}`, {
+          method: "PUT",
+          headers: apiHeaders,
+          body: JSON.stringify({ activo: !pr.activo }),
+        });
+        await cargarListado();
+      } finally {
+        setLoading(false);
+      }
+    })();
   };
 
-  const agregarPlan = (prestador, planId) => {
-    if (!planId) return;
-    const plan = todosPlanes.find(p => p.id === Number(planId));
-    if (!plan) return;
-    const ya = (prestador.planes || []).some(pl => pl.os_programa_id === plan.id);
-    if (ya) return;
-    setPrestadores(prev => prev.map(p => p.id === prestador.id
-      ? { ...p, planes: [...(p.planes || []), { os_programa_id: plan.id, obra_social: plan.osNombre, programa: plan.programaNombre }] }
-      : p
-    ));
-    setModalPlan(null);
-    setPlanSel("");
+  const agregarPlan = async (prestador) => {
+    const codigo = (planForm.codigo || "").trim();
+    const nombre = (planForm.nombre || "").trim();
+    if (!codigo || !nombre) return;
+    setLoading(true);
+    setErrorMsg(null);
+    try {
+      const r = await fetch(`/api/prestadores/${prestador.id}/planes`, {
+        method: "POST",
+        headers: apiHeaders,
+        body: JSON.stringify({ codigo, nombre, activo: planForm.activo }),
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(j.error || "Error al agregar plan");
+      setModalPlan(null);
+      setPlanForm({ codigo: "", nombre: "", activo: true });
+      await cargarDetalle(prestador.id);
+    } catch (err) {
+      setErrorMsg(String(err?.message || err));
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const quitarPlan = (prestador, os_programa_id) => {
-    setPrestadores(prev => prev.map(p => p.id === prestador.id
-      ? { ...p, planes: (p.planes || []).filter(pl => pl.os_programa_id !== os_programa_id) }
-      : p
-    ));
+  const quitarPlan = async (prestador, plan_id) => {
+    setLoading(true);
+    setErrorMsg(null);
+    try {
+      const r = await fetch(`/api/prestadores/${prestador.id}/planes/${plan_id}`, { method: "DELETE" });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(j.error || "Error al quitar plan");
+      await cargarDetalle(prestador.id);
+    } catch (err) {
+      setErrorMsg(String(err?.message || err));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const eliminarWebServiceDetalle = async (pr) => {
+    setLoading(true);
+    setErrorMsg(null);
+    try {
+      const r = await fetch(`/api/prestadores/${pr.id}/webservice`, { method: "DELETE" });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(j.error || "Error al eliminar web service");
+      await cargarListado();
+      if (prestadorDesp === pr.id) await cargarDetalle(pr.id);
+    } catch (err) {
+      setErrorMsg(String(err?.message || err));
+    } finally {
+      setLoading(false);
+    }
   };
 
   const fld = (key, label, ph = "", type = "text") => {
@@ -1760,6 +2054,11 @@ function ABMPrestadores({ obrasSociales }) {
 
   return (
     <div>
+      {errorMsg && (
+        <div style={{ background: "#fee2e2", border: "1px solid #fecaca", color: "#ef4444", borderRadius: 12, padding: "12px 16px", marginBottom: 14, fontSize: 13, fontWeight: 700 }}>
+          {errorMsg}
+        </div>
+      )}
       {/* Confirmación baja */}
       {confBaja && (
         <Overlay onClose={() => setConfBaja(null)} zIndex={300}>
@@ -1786,6 +2085,37 @@ function ABMPrestadores({ obrasSociales }) {
             <div style={{ padding: 22, display: "flex", flexDirection: "column", gap: 14 }}>
               {fld("nombre", "Nombre del prestador", "ej: PAMI Mandataria X")}
               {fld("codigoPrestador", "Código prestador", "ej: 1234-ABC")}
+              <div>
+                <label style={{ fontSize: 11, color: "#64748b", fontWeight: 700, display: "block", marginBottom: 6 }}>
+                  Provincia
+                  <span style={{ color: "#ef4444" }}> *</span>
+                </label>
+                <select
+                  value={form.provincia || "Buenos Aires"}
+                  onChange={e => setForm({ ...form, provincia: e.target.value })}
+                  style={{ width: "100%", padding: "10px 12px", borderRadius: 9, border: "1px solid #e2e8f0", fontSize: 13 }}
+                >
+                  {PROVINCIAS_ARG.map(p => (
+                    <option key={p} value={p}>{p}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label style={{ fontSize: 11, color: "#64748b", fontWeight: 700, display: "block", marginBottom: 6 }}>
+                  Tipo de liquidación
+                  <span style={{ color: "#ef4444" }}> *</span>
+                </label>
+                <select
+                  value={form.tipo_liquidacion || "por renglon"}
+                  onChange={e => setForm({ ...form, tipo_liquidacion: e.target.value })}
+                  style={{ width: "100%", padding: "10px 12px", borderRadius: 9, border: "1px solid #e2e8f0", fontSize: 13 }}
+                >
+                  {TIPOS_LIQUIDACION.map(t => (
+                    <option key={t} value={t}>{t}</option>
+                  ))}
+                </select>
+              </div>
               <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: "#1f2933", fontWeight: 600, marginTop: 4 }}>
                 <input
                   type="checkbox"
@@ -1806,34 +2136,179 @@ function ABMPrestadores({ obrasSociales }) {
 
       {/* Modal agregar plan */}
       {modalPlan && (
-        <Overlay onClose={() => { setModalPlan(null); setPlanSel(""); }} zIndex={200}>
+        <Overlay onClose={() => { setModalPlan(null); setPlanForm({ codigo: "", nombre: "", activo: true }); }} zIndex={200}>
           <div style={{ background: "#fff", borderRadius: 20, width: "100%", maxWidth: 460, boxShadow: "0 32px 80px #0008" }}>
             <div style={{ padding: "18px 22px", borderBottom: "1px solid #e2e8f0", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
               <div>
                 <div style={{ fontWeight: 800, fontSize: 15, color: "#0f172a" }}>Asociar plan</div>
                 <div style={{ fontSize: 12, color: "#64748b", marginTop: 2 }}>Prestador: {modalPlan.nombre}</div>
               </div>
-              <button onClick={() => { setModalPlan(null); setPlanSel(""); }} style={{ background: "#f1f5f9", border: "none", borderRadius: 8, padding: "6px 13px", cursor: "pointer", fontWeight: 700, color: "#64748b" }}>✕</button>
+              <button onClick={() => { setModalPlan(null); setPlanForm({ codigo: "", nombre: "", activo: true }); }} style={{ background: "#f1f5f9", border: "none", borderRadius: 8, padding: "6px 13px", cursor: "pointer", fontWeight: 700, color: "#64748b" }}>✕</button>
             </div>
             <div style={{ padding: 22 }}>
-              <label style={{ fontSize: 11, color: "#64748b", fontWeight: 700, display: "block", marginBottom: 6 }}>Plan de obra social</label>
-              <select
-                value={planSel}
-                onChange={e => setPlanSel(e.target.value)}
-                style={{ width: "100%", padding: "10px 12px", borderRadius: 9, border: "1px solid #e2e8f0", fontSize: 13 }}
-              >
-                <option value="">Seleccionar OS / plan...</option>
-                {todosPlanes.map(p => (
-                  <option key={p.id} value={p.id}>{p.label}</option>
-                ))}
-              </select>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                <div>
+                  <label style={{ fontSize: 11, color: "#64748b", fontWeight: 700, display: "block", marginBottom: 6 }}>Código</label>
+                  <input
+                    value={planForm.codigo}
+                    onChange={e => setPlanForm({ ...planForm, codigo: e.target.value })}
+                    placeholder="Ej: 001"
+                    style={{ width: "100%", padding: "10px 12px", borderRadius: 9, border: "1px solid #e2e8f0", fontSize: 13, outline: "none", boxSizing: "border-box" }}
+                  />
+                </div>
+                <div>
+                  <label style={{ fontSize: 11, color: "#64748b", fontWeight: 700, display: "block", marginBottom: 6 }}>Nombre</label>
+                  <input
+                    value={planForm.nombre}
+                    onChange={e => setPlanForm({ ...planForm, nombre: e.target.value })}
+                    placeholder="Ej: Plan Básico"
+                    style={{ width: "100%", padding: "10px 12px", borderRadius: 9, border: "1px solid #e2e8f0", fontSize: 13, outline: "none", boxSizing: "border-box" }}
+                  />
+                </div>
+              </div>
+              <div style={{ marginTop: 12, display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
+                <input
+                  type="checkbox"
+                  checked={planForm.activo}
+                  onChange={e => setPlanForm({ ...planForm, activo: e.target.checked })}
+                  style={{ width: 16, height: 16, cursor: "pointer" }}
+                />
+                <span style={{ fontSize: 13, fontWeight: 700, color: "#1e293b" }}>Plan activo</span>
+              </div>
               <button
-                onClick={() => agregarPlan(modalPlan, planSel)}
-                disabled={!planSel}
-                style={{ width: "100%", marginTop: 16, padding: "11px", background: planSel ? "#7c3aed" : "#e2e8f0", color: planSel ? "#fff" : "#94a3b8", border: "none", borderRadius: 10, fontWeight: 700, cursor: planSel ? "pointer" : "not-allowed" }}
+                onClick={() => agregarPlan(modalPlan)}
+                disabled={!(planForm.codigo || "").trim() || !(planForm.nombre || "").trim()}
+                style={{ width: "100%", marginTop: 16, padding: "11px", background: (planForm.codigo || "").trim() && (planForm.nombre || "").trim() ? "#7c3aed" : "#e2e8f0", color: (planForm.codigo || "").trim() && (planForm.nombre || "").trim() ? "#fff" : "#94a3b8", border: "none", borderRadius: 10, fontWeight: 700, cursor: (planForm.codigo || "").trim() && (planForm.nombre || "").trim() ? "pointer" : "not-allowed" }}
               >
                 Agregar plan
               </button>
+            </div>
+          </div>
+        </Overlay>
+      )}
+
+      {/* Modal web service */}
+      {modalWeb && (
+        <Overlay onClose={() => setModalWeb(null)} zIndex={250}>
+          <div style={{ background: "#fff", borderRadius: 20, width: "100%", maxWidth: 720, boxShadow: "0 32px 80px #0008" }}>
+            <div style={{ padding: "18px 22px", borderBottom: "1px solid #e2e8f0", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <div>
+                <div style={{ fontWeight: 800, fontSize: 16, color: "#0f172a" }}>Web service del prestador</div>
+                <div style={{ fontSize: 12, color: "#64748b", marginTop: 2 }}>Prestador: {modalWeb.nombre} · {modalWeb.codigoPrestador}</div>
+              </div>
+              <button onClick={() => setModalWeb(null)} style={{ background: "#f1f5f9", border: "none", borderRadius: 8, padding: "6px 13px", cursor: "pointer", fontWeight: 700, color: "#64748b" }}>✕</button>
+            </div>
+
+            <div style={{ padding: 22, display: "flex", flexDirection: "column", gap: 16 }}>
+
+              <label style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer", fontSize: 13, color: "#1e293b", fontWeight: 600 }}>
+                <input
+                  type="checkbox"
+                  checked={webTiene}
+                  onChange={async (e) => {
+                    const next = e.target.checked;
+                    if (!next) {
+                      setWebTiene(false);
+                      setWebUrls([]);
+                      setWebForm({
+                        usuario: "",
+                        contrasena: "",
+                        id_organizacion: "",
+                        codigo_prestador: modalWeb.codigoPrestador,
+                        wsu_id: "",
+                        activo: true,
+                      });
+                      return;
+                    }
+                    setWebTiene(true);
+                    setWebForm(prev => ({ ...prev, codigo_prestador: modalWeb.codigoPrestador }));
+                  }}
+                  style={{ width: 16, height: 16 }}
+                />
+                Tiene web service
+              </label>
+
+              {/* Datos base */}
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, opacity: webTiene ? 1 : 0.6, pointerEvents: webTiene ? "auto" : "none" }}>
+                <div>
+                  <label style={{ fontSize: 11, color: "#64748b", fontWeight: 700, display: "block", marginBottom: 6 }}>Usuario</label>
+                  <input value={webForm.usuario} onChange={e => setWebForm({ ...webForm, usuario: e.target.value })} style={{ width: "100%", padding: "10px 12px", borderRadius: 9, border: "1px solid #e2e8f0", fontSize: 13, outline: "none", boxSizing: "border-box" }} />
+                </div>
+                <div>
+                  <label style={{ fontSize: 11, color: "#64748b", fontWeight: 700, display: "block", marginBottom: 6 }}>Contraseña</label>
+                  <input type="password" value={webForm.contrasena} onChange={e => setWebForm({ ...webForm, contrasena: e.target.value })} style={{ width: "100%", padding: "10px 12px", borderRadius: 9, border: "1px solid #e2e8f0", fontSize: 13, outline: "none", boxSizing: "border-box" }} />
+                </div>
+                <div>
+                  <label style={{ fontSize: 11, color: "#64748b", fontWeight: 700, display: "block", marginBottom: 6 }}>Id de organización</label>
+                  <input value={webForm.id_organizacion} onChange={e => setWebForm({ ...webForm, id_organizacion: e.target.value })} style={{ width: "100%", padding: "10px 12px", borderRadius: 9, border: "1px solid #e2e8f0", fontSize: 13, outline: "none", boxSizing: "border-box" }} />
+                </div>
+                <div>
+                  <label style={{ fontSize: 11, color: "#64748b", fontWeight: 700, display: "block", marginBottom: 6 }}>wsuID</label>
+                  <input value={webForm.wsu_id} onChange={e => setWebForm({ ...webForm, wsu_id: e.target.value })} style={{ width: "100%", padding: "10px 12px", borderRadius: 9, border: "1px solid #e2e8f0", fontSize: 13, outline: "none", boxSizing: "border-box" }} />
+                </div>
+                <div style={{ gridColumn: "span 2" }}>
+                  <label style={{ fontSize: 11, color: "#64748b", fontWeight: 700, display: "block", marginBottom: 6 }}>Código prestador</label>
+                  <input value={webForm.codigo_prestador} disabled style={{ width: "100%", padding: "10px 12px", borderRadius: 9, border: "1px solid #e2e8f0", fontSize: 13, outline: "none", boxSizing: "border-box", background: "#f8fafc", color: "#64748b" }} />
+                </div>
+              </div>
+
+              {/* URLs */}
+              <div style={{ borderTop: "1px solid #f1f5f9", paddingTop: 14, opacity: webTiene ? 1 : 0.6, pointerEvents: webTiene ? "auto" : "none" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+                  <div style={{ fontWeight: 800, fontSize: 13, color: "#1e293b" }}>URLs</div>
+                </div>
+
+                {(webUrls || []).length === 0 ? (
+                  <div style={{ fontSize: 12, color: "#94a3b8", marginBottom: 10 }}>No hay URLs cargadas.</div>
+                ) : (
+                  <ul style={{ margin: 0, paddingLeft: 18, fontSize: 12, marginBottom: 12 }}>
+                    {(webUrls || []).map(u => (
+                      <li key={u.id} style={{ marginBottom: 6 }}>
+                        <span style={{ fontWeight: 700 }}>{u.tipo}</span>:{" "}
+                        <span style={{ color: "#475569" }}>{u.link}</span>
+                        <button onClick={() => quitarWebUrl(u.id)} style={{ marginLeft: 10, background: "#fee2e2", color: "#ef4444", border: "none", borderRadius: 6, padding: "4px 8px", cursor: "pointer", fontSize: 11 }}>
+                          <Icon name="x" size={11} />
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 2fr", gap: 12, alignItems: "end" }}>
+                  <div>
+                    <label style={{ fontSize: 11, color: "#64748b", fontWeight: 700, display: "block", marginBottom: 6 }}>Tipo</label>
+                    <input value={webUrlForm.tipo} onChange={e => setWebUrlForm({ ...webUrlForm, tipo: e.target.value })} style={{ width: "100%", padding: "10px 12px", borderRadius: 9, border: "1px solid #e2e8f0", fontSize: 13, outline: "none", boxSizing: "border-box" }} />
+                  </div>
+                  <div>
+                    <label style={{ fontSize: 11, color: "#64748b", fontWeight: 700, display: "block", marginBottom: 6 }}>Link</label>
+                    <input value={webUrlForm.link} onChange={e => setWebUrlForm({ ...webUrlForm, link: e.target.value })} style={{ width: "100%", padding: "10px 12px", borderRadius: 9, border: "1px solid #e2e8f0", fontSize: 13, outline: "none", boxSizing: "border-box" }} />
+                  </div>
+                  <button onClick={agregarWebUrl} style={{ gridColumn: "span 2", width: "100%", padding: "11px", background: "#0d9488", color: "#fff", border: "none", borderRadius: 10, fontWeight: 800, cursor: "pointer" }}>
+                    + Agregar URL
+                  </button>
+                </div>
+              </div>
+
+              <div style={{ display: "flex", gap: 10, marginTop: 6 }}>
+                <button onClick={() => setModalWeb(null)} style={{ flex: 1, padding: "11px", background: "#f1f5f9", border: "none", borderRadius: 10, fontWeight: 700, cursor: "pointer", color: "#64748b" }}>
+                  Cancelar
+                </button>
+                <button
+                  onClick={guardarWebService}
+                  style={{
+                    flex: 1,
+                    padding: "11px",
+                    background: webTiene ? "#0ea5e9" : "#ef4444",
+                    color: "#fff",
+                    border: "none",
+                    borderRadius: 10,
+                    fontWeight: 800,
+                    cursor: "pointer",
+                  }}
+                >
+                  {webTiene ? "Guardar web service" : "Eliminar web service"}
+                </button>
+              </div>
             </div>
           </div>
         </Overlay>
@@ -1876,8 +2351,14 @@ function ABMPrestadores({ obrasSociales }) {
                   <span style={{ fontSize: 11, background: "#e0f2fe", color: "#0284c7", borderRadius: 6, padding: "2px 8px", fontWeight: 600 }}>
                     Código: {pr.codigoPrestador}
                   </span>
+                  <span style={{ fontSize: 11, background: "#f8fafc", color: "#334155", borderRadius: 6, padding: "2px 8px", fontWeight: 700 }}>
+                    Provincia: {pr.provincia || "Buenos Aires"}
+                  </span>
                   <span style={{ fontSize: 11, background: "#f5f3ff", color: "#7c3aed", borderRadius: 6, padding: "2px 8px", fontWeight: 600 }}>
-                    {(pr.planes || []).length} planes
+                    {(pr.planes && pr.planes.length) ? pr.planes.length : (pr.cant_planes || 0)} planes
+                  </span>
+                  <span style={{ fontSize: 11, background: "#f8fafc", color: "#334155", borderRadius: 6, padding: "2px 8px", fontWeight: 700 }}>
+                    Liquidación: {pr.tipo_liquidacion || "por renglon"}
                   </span>
                 </div>
               </div>
@@ -1887,6 +2368,12 @@ function ABMPrestadores({ obrasSociales }) {
                   style={{ display: "flex", alignItems: "center", gap: 5, background: "#f5f3ff", color: "#7c3aed", border: "1px solid #ddd6fe", borderRadius: 8, padding: "6px 11px", cursor: "pointer", fontSize: 11, fontWeight: 700 }}
                 >
                   <Icon name="plus" size={11} />Plan
+                </button>
+                <button
+                  onClick={() => abrirWebService(pr, { forceCrear: !pr.tiene_webservice })}
+                  style={{ display: "flex", alignItems: "center", gap: 5, background: "#f0f9ff", color: "#0284c7", border: "1px solid #bae6fd", borderRadius: 8, padding: "6px 11px", cursor: "pointer", fontSize: 11, fontWeight: 700 }}
+                >
+                  <Icon name="shield" size={11} />Web service
                 </button>
                 <button
                   onClick={() => toggleActivo(pr)}
@@ -1907,7 +2394,11 @@ function ABMPrestadores({ obrasSociales }) {
                   <Icon name="x" size={13} />
                 </button>
                 <button
-                  onClick={() => setPrestDesp(prestadorDesp === pr.id ? null : pr.id)}
+                  onClick={() => {
+                    const next = prestadorDesp === pr.id ? null : pr.id;
+                    setPrestDesp(next);
+                    if (next && (!pr.planes || pr.planes.length === 0)) cargarDetalle(pr.id);
+                  }}
                   style={{ background: "#f8fafc", color: "#64748b", border: "1px solid #e2e8f0", borderRadius: 8, padding: "6px 12px", cursor: "pointer", fontSize: 11, fontWeight: 700 }}
                 >
                   {prestadorDesp === pr.id ? "▲ Ocultar" : "▼ Ver detalle"}
@@ -1922,10 +2413,10 @@ function ABMPrestadores({ obrasSociales }) {
                 ) : (
                   <ul style={{ margin: 0, paddingLeft: 18, fontSize: 12 }}>
                     {(pr.planes || []).map(pl => (
-                      <li key={pl.os_programa_id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
-                        <span>{pl.obra_social} — {pl.programa}</span>
+                      <li key={pl.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+                        <span>{pl.codigo} — {pl.nombre}</span>
                         <button
-                          onClick={() => quitarPlan(pr, pl.os_programa_id)}
+                          onClick={() => quitarPlan(pr, pl.id)}
                           style={{ background: "#fee2e2", color: "#ef4444", border: "none", borderRadius: 6, padding: "4px 8px", cursor: "pointer", fontSize: 11 }}
                         >
                           <Icon name="x" size={11} />
@@ -1934,6 +2425,49 @@ function ABMPrestadores({ obrasSociales }) {
                     ))}
                   </ul>
                 )}
+
+                <div style={{ marginTop: 14, borderTop: "1px solid #f1f5f9", paddingTop: 14 }}>
+                  <div style={{ fontWeight: 700, fontSize: 12, color: "#64748b", marginBottom: 10 }}>Web service</div>
+
+                  {pr.tiene_webservice ? (
+                    <div>
+                      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+                        <div style={{ fontSize: 12, color: "#0284c7", fontWeight: 800 }}>
+                          Tiene web service · {pr.cant_web_urls} URL(s)
+                        </div>
+                        <div style={{ display: "flex", gap: 6 }}>
+                          <button
+                            onClick={() => abrirWebService(pr)}
+                            title="Modificar web service"
+                            style={{ background: "#f0f9ff", color: "#0284c7", border: "1px solid #bae6fd", borderRadius: 6, padding: "4px 8px", cursor: "pointer", fontSize: 11 }}
+                          >
+                            <Icon name="edit" size={11} />
+                          </button>
+                          <button
+                            onClick={() => eliminarWebServiceDetalle(pr)}
+                            title="Eliminar web service"
+                            style={{ background: "#fee2e2", color: "#ef4444", border: "1px solid #fecaca", borderRadius: 6, padding: "4px 8px", cursor: "pointer", fontSize: 11 }}
+                          >
+                            <Icon name="x" size={11} />
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+                      <div style={{ fontSize: 12, color: "#94a3b8", fontWeight: 800 }}>
+                        No tiene web service
+                      </div>
+                      <button
+                        onClick={() => abrirWebService(pr, { forceCrear: true })}
+                        title="Crear web service"
+                        style={{ background: "#ecfeff", color: "#0e7490", border: "1px solid #bae6fd", borderRadius: 6, padding: "4px 8px", cursor: "pointer", fontSize: 11 }}
+                      >
+                        <Icon name="plus" size={11} />
+                      </button>
+                    </div>
+                  )}
+                </div>
               </div>
             )}
           </div>

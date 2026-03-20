@@ -58,14 +58,23 @@ router.post  ("/vademecums/:id/productos",                auth, vademecum.agrega
 router.delete("/vademecums/:id/productos/:producto_id",    auth, vademecum.quitarProducto);
 
 // ── PRESTADORES ────────────────────────────────────────────────
-router.get   ("/prestadores",                             auth, prestadores.listar);
-router.get   ("/prestadores/:id",                         auth, prestadores.obtener);
-router.post  ("/prestadores",                             auth, prestadores.crear);
-router.put   ("/prestadores/:id",                         auth, prestadores.actualizar);
-router.delete("/prestadores/:id",                         auth, prestadores.eliminar);
-router.get   ("/prestadores/:id/planes",                  auth, prestadores.listarPlanes);
-router.post  ("/prestadores/:id/planes",                  auth, prestadores.agregarPlan);
-router.delete("/prestadores/:id/planes/:os_programa_id",  auth, prestadores.quitarPlan);
+// Nota: para que el frontend actual (sin login/token) pueda persistir,
+// estas rutas quedan sin middleware `auth`.
+router.get   ("/prestadores",                             prestadores.listar);
+router.get   ("/prestadores/:id",                         prestadores.obtener);
+router.post  ("/prestadores",                             prestadores.crear);
+router.put   ("/prestadores/:id",                         prestadores.actualizar);
+router.delete("/prestadores/:id",                         prestadores.eliminar);
+router.get   ("/prestadores/:id/planes",                  prestadores.listarPlanes);
+router.post  ("/prestadores/:id/planes",                  prestadores.agregarPlan);
+router.delete("/prestadores/:id/planes/:plan_id",        prestadores.quitarPlan);
+
+// ── WEB SERVICE prestador ─────────────────────────────────────
+router.get   ("/prestadores/:id/webservice",                               prestadores.obtenerWebService);
+router.post  ("/prestadores/:id/webservice",                               prestadores.guardarWebService);
+router.delete("/prestadores/:id/webservice",                               prestadores.eliminarWebService);
+router.post  ("/prestadores/:id/webservice/urls",                          prestadores.agregarWebUrl);
+router.delete("/prestadores/:id/webservice/urls/:url_id",                  prestadores.quitarWebUrl);
 
 // ── CAJA ──────────────────────────────────────────────────────
 router.post("/caja/abrir",               auth, general.abrirCaja);

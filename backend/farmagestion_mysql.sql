@@ -86,19 +86,59 @@ CREATE TABLE prestadores (
   id               INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   nombre           VARCHAR(120) NOT NULL,
   codigo_prestador VARCHAR(40)  NOT NULL,
+  provincia       VARCHAR(60)  NOT NULL DEFAULT 'Buenos Aires',
+  tipo_liquidacion VARCHAR(30) NOT NULL DEFAULT 'por renglon',
   activo           TINYINT(1)   NOT NULL DEFAULT 1,
   created_at       DATETIME DEFAULT CURRENT_TIMESTAMP,
   updated_at       DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   UNIQUE KEY uk_prestador_codigo (codigo_prestador)
 ) ENGINE=InnoDB;
 
--- Relación muchos a muchos: prestador ↔ planes de OS
+-- ============================================================
+-- TABLA: planes propios del prestador (código y nombre)
+-- ============================================================
 CREATE TABLE prestador_planes (
-  prestador_id   INT UNSIGNED NOT NULL,
-  os_programa_id INT UNSIGNED NOT NULL,
-  PRIMARY KEY (prestador_id, os_programa_id),
-  FOREIGN KEY (prestador_id)   REFERENCES prestadores(id)  ON DELETE CASCADE,
-  FOREIGN KEY (os_programa_id) REFERENCES os_programas(id) ON DELETE CASCADE
+  id            INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  prestador_id  INT UNSIGNED NOT NULL,
+  codigo        VARCHAR(40) NOT NULL,
+  nombre        VARCHAR(120) NOT NULL,
+  activo        TINYINT(1) NOT NULL DEFAULT 1,
+  created_at    DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updated_at    DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY uk_prestador_codigo (prestador_id, codigo),
+  FOREIGN KEY (prestador_id) REFERENCES prestadores(id) ON DELETE CASCADE
+) ENGINE=InnoDB;
+
+-- ============================================================
+-- TABLA: web service del prestador (1 a 1)
+-- ============================================================
+CREATE TABLE prestador_webservice (
+  id               INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  prestador_id     INT UNSIGNED NOT NULL,
+  usuario          VARCHAR(120) DEFAULT NULL,
+  contrasena       VARCHAR(255) DEFAULT NULL,
+  id_organizacion  VARCHAR(80)  DEFAULT NULL,
+  codigo_prestador VARCHAR(40)  NOT NULL,
+  wsu_id           VARCHAR(80)  DEFAULT NULL,
+  activo           TINYINT(1)   NOT NULL DEFAULT 1,
+  created_at       DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updated_at       DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY uk_prestador_webservice (prestador_id),
+  FOREIGN KEY (prestador_id) REFERENCES prestadores(id) ON DELETE CASCADE
+) ENGINE=InnoDB;
+
+-- ============================================================
+-- TABLA: urls del web service del prestador (1 a muchos)
+-- ============================================================
+CREATE TABLE prestador_webservice_urls (
+  id                    INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  prestador_webservice_id INT UNSIGNED NOT NULL,
+  tipo                  VARCHAR(60)  NOT NULL,
+  link                  VARCHAR(500) NOT NULL,
+  activo                TINYINT(1)   NOT NULL DEFAULT 1,
+  created_at            DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updated_at            DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  FOREIGN KEY (prestador_webservice_id) REFERENCES prestador_webservice(id) ON DELETE CASCADE
 ) ENGINE=InnoDB;
 
 -- ============================================================

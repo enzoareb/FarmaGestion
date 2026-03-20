@@ -19,13 +19,17 @@ farmagestion-src/
 ├── backend/
 │   ├── server.js             ← Express, puerto 3001
 │   ├── farmagestion_mysql.sql ← Schema + datos iniciales + vistas + SPs
+│   ├── migraciones.sql       ← Migraciones incrementales
+│   ├── migracion_prestadores_solo.sql ← Migración específica prestadores
 │   ├── .env.example          ← Variables de entorno
 │   ├── config/db.js          ← Pool mysql2
 │   ├── controllers/
 │   │   ├── authController.js
 │   │   ├── facturacionController.js
 │   │   ├── generalController.js
-│   │   └── productosController.js
+│   │   ├── productosController.js
+│   │   ├── vademecumController.js
+│   │   └── prestadoresController.js
 │   ├── middleware/auth.js     ← JWT
 │   ├── routes/index.js
 │   └── package.json
@@ -153,6 +157,8 @@ Orden sugerido: operación diaria → datos maestros → compras → análisis.
 | 📦 Stock | ABM productos (barras, alfabeta, troquel) |
 | 💲 Precios | Actualización masiva e individual con historial |
 | 🏥 Obras Sociales | ABM con programas, descuentos y topes |
+| 🧩 Vademécums | ABM de vademécums y asociación de productos |
+| 🏛️ Prestadores | ABM de prestadores, planes propios y web service |
 | 👤 Clientes | ABM con legajos y medicamentos autorizados |
 | 🚚 Proveedores | Gestión de pedidos a droguerías |
 | 📈 Reportes | Ventas por período, rentabilidad, distribución |
@@ -176,3 +182,14 @@ Orden sugerido: operación diaria → datos maestros → compras → análisis.
 - Número de factura incremental
 - `useMemo` en filtros de Facturación y Precios
 - Componente `<Overlay>` con Escape y click-fuera en todos los modales
+
+---
+
+## 🧪 Notas de Prestadores y Web Service
+
+- Cada `prestador` puede tener como máximo **1 web service**.
+- El web service puede tener credenciales (`usuario`, `contrasena`, `id_organizacion`, `wsu_id`) **opcionales**.
+- El alta/edición se realiza desde el módulo Prestadores:
+  - si no tiene web service: opción de **crear**,
+  - si ya tiene: opciones de **modificar** o **eliminar**.
+- Un web service puede gestionar **múltiples URLs** (`tipo` + `link`) en la tabla `prestador_webservice_urls`.

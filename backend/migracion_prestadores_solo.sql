@@ -1,51 +1,11 @@
 -- ============================================================
--- Migraciones manuales FarmaGestión
--- Ejecutar estas sentencias DESPUÉS de farmagestion_mysql.sql
+-- Migración SOLO Prestadores
+-- Ejecutar sobre la base: farmagestion
 -- ============================================================
 
--- 2026-03-10: agregar códigos adicionales de barras y códigos internos
-ALTER TABLE productos
-  ADD COLUMN codigo_barras2 VARCHAR(30) DEFAULT NULL AFTER codigo_barras,
-  ADD COLUMN codigo_barras3 VARCHAR(30) DEFAULT NULL AFTER codigo_barras2,
-  ADD COLUMN codigo_sud     VARCHAR(30) DEFAULT NULL AFTER codigo_alfabeta,
-  ADD COLUMN codigo_suizo   VARCHAR(30) DEFAULT NULL AFTER codigo_sud,
-  ADD COLUMN codigo_asopro  VARCHAR(30) DEFAULT NULL AFTER codigo_suizo;
+USE farmagestion;
 
--- 2026-03-XX: tablas vademécums (solo si no existen)
-CREATE TABLE IF NOT EXISTS vademecums (
-  id            INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-  nombre        VARCHAR(120) NOT NULL,
-  descripcion   VARCHAR(255) DEFAULT NULL,
-  activo        TINYINT(1)   NOT NULL DEFAULT 1,
-  created_at    DATETIME DEFAULT CURRENT_TIMESTAMP,
-  updated_at    DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-) ENGINE=InnoDB;
-
-CREATE TABLE IF NOT EXISTS vademecum_productos (
-  vademecum_id  INT UNSIGNED NOT NULL,
-  producto_id   INT UNSIGNED NOT NULL,
-  prioridad     INT UNSIGNED DEFAULT NULL,
-  observacion   VARCHAR(255) DEFAULT NULL,
-  PRIMARY KEY (vademecum_id, producto_id),
-  FOREIGN KEY (vademecum_id) REFERENCES vademecums(id) ON DELETE CASCADE,
-  FOREIGN KEY (producto_id)  REFERENCES productos(id)  ON DELETE CASCADE
-) ENGINE=InnoDB;
-
-CREATE TABLE IF NOT EXISTS programa_vademecum (
-  id              INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-  os_programa_id   INT UNSIGNED NOT NULL,
-  vademecum_id     INT UNSIGNED NOT NULL,
-  tipo_beneficio   ENUM('porcentaje','monto_fijo') NOT NULL,
-  valor_beneficio  DECIMAL(12,2) NOT NULL,
-  activo           TINYINT(1)   NOT NULL DEFAULT 1,
-  created_at       DATETIME DEFAULT CURRENT_TIMESTAMP,
-  updated_at       DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  UNIQUE KEY uk_programa_vademecum (os_programa_id, vademecum_id),
-  FOREIGN KEY (os_programa_id) REFERENCES os_programas(id) ON DELETE CASCADE,
-  FOREIGN KEY (vademecum_id)   REFERENCES vademecums(id)   ON DELETE CASCADE
-) ENGINE=InnoDB;
-
--- 2026-03-XX: tablas prestadores (solo si no existen)
+-- Crear prestadores si no existe
 CREATE TABLE IF NOT EXISTS prestadores (
   id               INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   nombre           VARCHAR(120) NOT NULL,
@@ -58,8 +18,7 @@ CREATE TABLE IF NOT EXISTS prestadores (
   UNIQUE KEY uk_prestador_codigo (codigo_prestador)
 ) ENGINE=InnoDB;
 
--- Si la tabla prestadores ya existía sin la columna provincia,
--- agregamos la columna de forma segura.
+-- Agregar columnas faltantes (si la tabla existía vieja)
 SET @__col := (
   SELECT COUNT(*)
   FROM INFORMATION_SCHEMA.COLUMNS
@@ -75,8 +34,6 @@ PREPARE stmt FROM @__sql;
 EXECUTE stmt;
 DEALLOCATE PREPARE stmt;
 
--- Si la tabla prestadores ya existía sin la columna tipo_liquidacion,
--- agregamos la columna de forma segura.
 SET @__col := (
   SELECT COUNT(*)
   FROM INFORMATION_SCHEMA.COLUMNS
@@ -92,14 +49,14 @@ PREPARE stmt FROM @__sql;
 EXECUTE stmt;
 DEALLOCATE PREPARE stmt;
 
--- Si la tabla prestador_planes ya existía con un esquema anterior,
--- la migramos para que tenga columnas nuevas (codigo/nombre/activo/id).
+-- Preparar prestador_planes con esquema nuevo (codigo/nombre/activo/id)
 SET @__table_exists := (
   SELECT COUNT(*)
   FROM INFORMATION_SCHEMA.TABLES
   WHERE TABLE_SCHEMA = DATABASE()
     AND TABLE_NAME = 'prestador_planes'
 );
+
 SET @__has_codigo := (
   SELECT COUNT(*)
   FROM INFORMATION_SCHEMA.COLUMNS
@@ -107,6 +64,8 @@ SET @__has_codigo := (
     AND TABLE_NAME = 'prestador_planes'
     AND COLUMN_NAME = 'codigo'
 );
+
+-- Si ya existía pero era del esquema viejo, renombramos a legacy y recreamos
 SET @__do_rename := IF(@__table_exists > 0 AND @__has_codigo = 0, 1, 0);
 SET @__sql = IF(@__do_rename = 1,
   'RENAME TABLE prestador_planes TO prestador_planes_legacy',
@@ -129,7 +88,7 @@ CREATE TABLE IF NOT EXISTS prestador_planes (
 ) ENGINE=InnoDB;
 
 -- ============================================================
--- 2026-03-XX: web service prestador
+-- Web service del prestador (1 a 1) + URLs
 -- ============================================================
 CREATE TABLE IF NOT EXISTS prestador_webservice (
   id               INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
@@ -146,7 +105,7 @@ CREATE TABLE IF NOT EXISTS prestador_webservice (
   FOREIGN KEY (prestador_id) REFERENCES prestadores(id) ON DELETE CASCADE
 ) ENGINE=InnoDB;
 
--- Ajuste de compatibilidad: permitir credenciales opcionales en webservice
+-- Compatibilidad para bases donde estas columnas existían NOT NULL
 SET @__col_nullable := (
   SELECT IS_NULLABLE
   FROM INFORMATION_SCHEMA.COLUMNS
